@@ -75,7 +75,7 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
                 context: cmd.to_string(),
                 usage: "open <url>",
             })?;
-            let url = if url.starts_with("http") {
+            let url = if url.starts_with("http") || url.starts_with("about:") || url.starts_with("data:") || url.starts_with("file:") {
                 url.to_string()
             } else {
                 format!("https://{}", url)
