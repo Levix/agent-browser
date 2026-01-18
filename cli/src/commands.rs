@@ -153,13 +153,18 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
         "select" => {
             let sel = rest.get(0).ok_or_else(|| ParseError::MissingArguments {
                 context: "select".to_string(),
-                usage: "select <selector> <value>",
+                usage: "select <selector> <value...>",
             })?;
-            let val = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
+            let _val = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
                 context: "select".to_string(),
-                usage: "select <selector> <value>",
+                usage: "select <selector> <value...>",
             })?;
-            Ok(json!({ "id": id, "action": "select", "selector": sel, "value": val }))
+            let values = &rest[1..];
+            if values.len() == 1 {
+                Ok(json!({ "id": id, "action": "select", "selector": sel, "values": values[0] }))
+            } else {
+                Ok(json!({ "id": id, "action": "select", "selector": sel, "values": values }))
+            }
         }
         "drag" => {
             let src = rest.get(0).ok_or_else(|| ParseError::MissingArguments {
@@ -408,7 +413,7 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
         // === Frame ===
         "frame" => {
             if rest.get(0).map(|s| *s) == Some("main") {
-                Ok(json!({ "id": id, "action": "frame_main" }))
+                Ok(json!({ "id": id, "action": "mainframe" }))
             } else {
                 let sel = rest.get(0).ok_or_else(|| ParseError::MissingArguments {
                     context: "frame".to_string(),
@@ -1247,6 +1252,32 @@ mod tests {
         assert_eq!(cmd["action"], "type");
         assert_eq!(cmd["selector"], "#input");
         assert_eq!(cmd["text"], "some text");
+    }
+
+    #[test]
+    fn test_select() {
+        let cmd = parse_command(&args("select #menu option1"), &default_flags()).unwrap();
+        assert_eq!(cmd["action"], "select");
+        assert_eq!(cmd["selector"], "#menu");
+        assert_eq!(cmd["values"], "option1");
+    }
+
+    #[test]
+    fn test_select_multiple_values() {
+        let cmd = parse_command(
+            &args("select #menu opt1 opt2 opt3"),
+            &default_flags(),
+        )
+        .unwrap();
+        assert_eq!(cmd["action"], "select");
+        assert_eq!(cmd["selector"], "#menu");
+        assert_eq!(cmd["values"], json!(["opt1", "opt2", "opt3"]));
+    }
+
+    #[test]
+    fn test_frame_main() {
+        let cmd = parse_command(&args("frame main"), &default_flags()).unwrap();
+        assert_eq!(cmd["action"], "mainframe");
     }
 
     // === Tabs ===

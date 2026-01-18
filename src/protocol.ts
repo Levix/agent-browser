@@ -36,6 +36,7 @@ const navigateSchema = baseCommandSchema.extend({
   action: z.literal('navigate'),
   url: z.string().min(1),
   waitUntil: z.enum(['load', 'domcontentloaded', 'networkidle']).optional(),
+  headers: z.record(z.string()).optional(),
 });
 
 const clickSchema = baseCommandSchema.extend({

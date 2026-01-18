@@ -423,9 +423,9 @@ Examples:
         "select" => r##"
 agent-browser select - Select a dropdown option
 
-Usage: agent-browser select <selector> <value>
+Usage: agent-browser select <selector> <value...>
 
-Selects an option in a <select> dropdown by its value attribute.
+Selects one or more options in a <select> dropdown by value.
 
 Global Options:
   --json               Output as JSON
@@ -434,6 +434,7 @@ Global Options:
 Examples:
   agent-browser select "#country" "US"
   agent-browser select @e5 "option2"
+  agent-browser select "#menu" "opt1" "opt2" "opt3"
 "##,
         "drag" => r##"
 agent-browser drag - Drag and drop
@@ -1233,7 +1234,7 @@ Core Commands:
   focus <sel>                Focus element
   check <sel>                Check checkbox
   uncheck <sel>              Uncheck checkbox
-  select <sel> <val>         Select dropdown option
+  select <sel> <val...>      Select dropdown option
   drag <src> <dst>           Drag and drop
   upload <sel> <files...>    Upload files
   scroll <dir> [px]          Scroll (up/down/left/right)
