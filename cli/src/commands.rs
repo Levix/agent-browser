@@ -1212,6 +1212,7 @@ mod tests {
             args: None,
             user_agent: None,
             provider: None,
+            ignore_https_errors: false,
         }
     }
 

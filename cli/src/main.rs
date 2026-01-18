@@ -239,7 +239,7 @@ fn main() {
         }
 
         if flags.ignore_https_errors {
-            eprintln!("\x1b[33m⚠\x1b[0m --ignore-https-errors ignored: daemon already running. Use 'agent-browser close' first to restart with this option.");
+            eprintln!("{} --ignore-https-errors ignored: daemon already running. Use 'agent-browser close' first to restart with this option.", color::warning_indicator());
         }
     }
 
