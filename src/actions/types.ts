@@ -91,6 +91,9 @@ export interface ActionDefinition {
   /** Post-execution verification conditions */
   verify?: VerifyCondition[];
 
+  /** Version compatibility configuration */
+  compatibility?: ActionCompatibility;
+
   /** Source file path (for debugging) */
   sourcePath: string;
 }

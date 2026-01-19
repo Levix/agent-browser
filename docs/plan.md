@@ -127,20 +127,21 @@
 
 ### 3.1 版本检测（src/actions/version.ts）
 
-- [ ] 实现 `detectComponentVersion(page, namespace)`
-- [ ] 支持 `window.__ERESH_VERSION__` / meta tag / 全局对象检测
-- [ ] 提供可插拔版本检测策略
+- [x] 实现 `detectComponentVersion(page, namespace)`
+- [x] 支持 `window.__ERESH_VERSION__` / meta tag / 全局对象检测
+- [x] 提供可插拔版本检测策略
 
 ### 3.2 兼容性选择（src/actions/version.ts）
 
-- [ ] 解析 `compatibility.min_version/max_version`
-- [ ] 判断版本是否兼容
-- [ ] 应用 `version_overrides` 到 selectors
+- [x] 解析 `compatibility.min_version/max_version`
+- [x] 判断版本是否兼容
+- [x] 应用 `version_overrides` 到 selectors
+- [x] 实现高级集成函数（getCompatibleAction, isNamespaceCompatible, selectBestAction）
 
 ### 3.3 选择器降级策略（src/actions/selectors.ts）
 
-- [ ] 支持 `primary/fallback` 选择器链
-- [ ] 执行失败时自动降级并重试
+- [x] 支持 `primary/fallback` 选择器链
+- [x] 执行失败时自动降级并重试
 
 ---
 
@@ -585,8 +586,8 @@
 - [x] src/actions/loader.ts - 文件加载器（完整实现）
 - [x] src/actions/registry.ts - Registry 服务（合并规则、索引、搜索）
 - [ ] src/actions/executor.ts - 执行引擎
-- [ ] src/actions/version.ts - 版本管理器
-- [ ] src/actions/selectors.ts - 选择器管理器
+- [x] src/actions/version.ts - 版本管理器（完整实现，含高级集成函数）
+- [x] src/actions/selectors.ts - 选择器管理器（完整实现，含降级策略）
 - [ ] src/actions/index.ts - 统一导出
 - [ ] src/types.ts - Command 类型扩展
 
@@ -611,6 +612,8 @@
 - [x] src/actions/validator.test.ts - Schema 校验器测试
 - [x] src/actions/loader.test.ts - 加载器测试（完整实现）
 - [x] src/actions/registry.test.ts - Registry 测试（合并规则、查询、搜索）
+- [x] src/actions/version.test.ts - 版本检测与兼容性测试（43 个测试全部通过）
+- [x] src/actions/selectors.test.ts - 选择器降级策略测试（40 个测试全部通过）
 - [ ] src/actions/*.test.ts - 其他单元测试
 - [ ] test/actions-e2e.test.ts - E2E 测试
 - [ ] test/actions-security.test.ts - 安全性测试
@@ -625,6 +628,8 @@
 - [ ] docs/api.md - API 参考（需创建）
 - [ ] docs/yaml-schema.md - YAML Schema 文档（需创建）
 - [x] docs/expression-evaluator.md - 表达式求值器使用文档
+- [x] src/actions/README.version.md - 版本管理与兼容性使用文档
+- [x] src/actions/README.selectors.md - 选择器降级策略使用文档
 - [ ] skills/agent-browser/SKILL.md - 更新 AI Agent 使用指南
 
 ### 15.7 依赖
