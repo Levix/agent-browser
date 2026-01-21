@@ -204,28 +204,28 @@
 
 ### 5.1 子命令解析（cli/src/commands.rs）
 
-- [ ] 新增 `action` 子命令入口
-- [ ] 实现 `action list [namespace]` - 列出可用操作
-- [ ] 实现 `action describe <action> [--json]` - 获取操作定义
-- [ ] 实现 `action run <action> [--param key=value]` - 执行操作
-- [ ] 实现 `action validate <file>` - 校验定义文件
-- [ ] 实现 `action search <keyword>` - 关键词搜索
-- [ ] 实现 `action reload` - 重新加载定义
-- [ ] 实现 `action dry-run <action>` - 干跑模式
-- [ ] 实现 `action debug <action>` - 调试模式
-- [ ] 参数解析与错误提示
-- [ ] 支持 `--json` 输出格式
+- [x] 新增 `action` 子命令入口
+- [x] 实现 `action list [namespace]` - 列出可用操作
+- [x] 实现 `action describe <action> [--json]` - 获取操作定义
+- [x] 实现 `action run <action> [--param key=value]` - 执行操作
+- [x] 实现 `action validate <file>` - 校验定义文件
+- [x] 实现 `action search <keyword>` - 关键词搜索
+- [x] 实现 `action reload` - 重新加载定义
+- [x] 实现 `action dry-run <action>` - 干跑模式
+- [x] 实现 `action debug <action>` - 调试模式
+- [x] 参数解析与错误提示
+- [x] 支持 `--json` 输出格式
 
 ### 5.2 CLI 输出格式（cli/src/output.rs）
 
-- [ ] 表格化输出
-- [ ] `--json` 输出结构
-- [ ] 错误格式统一
+- [x] 表格化输出
+- [x] `--json` 输出结构
+- [x] 错误格式统一
 
 ### 5.3 CLI → daemon 协议
 
-- [ ] 定义 `action.*` 的 JSON 指令格式
-- [ ] 补充 `Command` 类型（src/types.ts）
+- [x] 定义 `action.*` 的 JSON 指令格式
+- [x] 补充 `Command` 类型（src/types.ts）
 
 ---
 

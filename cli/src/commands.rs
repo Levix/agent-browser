@@ -799,6 +799,161 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
             }
         }
 
+        // === Action Commands ===
+        "action" => {
+            let subcmd = rest.get(0).ok_or_else(|| ParseError::MissingArguments {
+                context: "action".to_string(),
+                usage: "action <list|describe|run|validate|search|reload|dry-run|debug> [args...]",
+            })?;
+            
+            match *subcmd {
+                "list" => {
+                    let namespace = rest.get(1).map(|s| s.to_string());
+                    Ok(json!({ 
+                        "id": id, 
+                        "action": "action_list",
+                        "namespace": namespace
+                    }))
+                }
+                "describe" => {
+                    let action_name = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
+                        context: "action describe".to_string(),
+                        usage: "action describe <action>",
+                    })?;
+                    Ok(json!({ 
+                        "id": id, 
+                        "action": "action_describe",
+                        "name": action_name
+                    }))
+                }
+                "run" => {
+                    let action_name = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
+                        context: "action run".to_string(),
+                        usage: "action run <action> [--param key=value]...",
+                    })?;
+                    
+                    // Parse --param key=value pairs
+                    let mut params = serde_json::Map::new();
+                    let mut i = 2;
+                    while i < rest.len() {
+                        if rest[i] == "--param" || rest[i] == "-p" {
+                            if let Some(pair) = rest.get(i + 1) {
+                                if let Some((key, value)) = pair.split_once('=') {
+                                    params.insert(key.to_string(), json!(value));
+                                }
+                                i += 2;
+                            } else {
+                                i += 1;
+                            }
+                        } else {
+                            i += 1;
+                        }
+                    }
+                    
+                    Ok(json!({ 
+                        "id": id, 
+                        "action": "action_run",
+                        "name": action_name,
+                        "params": params
+                    }))
+                }
+                "validate" => {
+                    let file_path = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
+                        context: "action validate".to_string(),
+                        usage: "action validate <file>",
+                    })?;
+                    Ok(json!({ 
+                        "id": id, 
+                        "action": "action_validate",
+                        "path": file_path
+                    }))
+                }
+                "search" => {
+                    let keyword = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
+                        context: "action search".to_string(),
+                        usage: "action search <keyword>",
+                    })?;
+                    Ok(json!({ 
+                        "id": id, 
+                        "action": "action_search",
+                        "keyword": keyword
+                    }))
+                }
+                "reload" => {
+                    Ok(json!({ 
+                        "id": id, 
+                        "action": "action_reload"
+                    }))
+                }
+                "dry-run" => {
+                    let action_name = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
+                        context: "action dry-run".to_string(),
+                        usage: "action dry-run <action> [--param key=value]...",
+                    })?;
+                    
+                    // Parse --param key=value pairs
+                    let mut params = serde_json::Map::new();
+                    let mut i = 2;
+                    while i < rest.len() {
+                        if rest[i] == "--param" || rest[i] == "-p" {
+                            if let Some(pair) = rest.get(i + 1) {
+                                if let Some((key, value)) = pair.split_once('=') {
+                                    params.insert(key.to_string(), json!(value));
+                                }
+                                i += 2;
+                            } else {
+                                i += 1;
+                            }
+                        } else {
+                            i += 1;
+                        }
+                    }
+                    
+                    Ok(json!({ 
+                        "id": id, 
+                        "action": "action_dry_run",
+                        "name": action_name,
+                        "params": params
+                    }))
+                }
+                "debug" => {
+                    let action_name = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
+                        context: "action debug".to_string(),
+                        usage: "action debug <action> [--param key=value]...",
+                    })?;
+                    
+                    // Parse --param key=value pairs
+                    let mut params = serde_json::Map::new();
+                    let mut i = 2;
+                    while i < rest.len() {
+                        if rest[i] == "--param" || rest[i] == "-p" {
+                            if let Some(pair) = rest.get(i + 1) {
+                                if let Some((key, value)) = pair.split_once('=') {
+                                    params.insert(key.to_string(), json!(value));
+                                }
+                                i += 2;
+                            } else {
+                                i += 1;
+                            }
+                        } else {
+                            i += 1;
+                        }
+                    }
+                    
+                    Ok(json!({ 
+                        "id": id, 
+                        "action": "action_debug",
+                        "name": action_name,
+                        "params": params
+                    }))
+                }
+                _ => Err(ParseError::UnknownSubcommand {
+                    subcommand: subcmd.to_string(),
+                    valid_options: &["list", "describe", "run", "validate", "search", "reload", "dry-run", "debug"],
+                }),
+            }
+        }
+
         _ => Err(ParseError::UnknownCommand {
             command: cmd.to_string(),
         }),

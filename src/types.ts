@@ -931,7 +931,15 @@ export type Command =
   | ScreencastStopCommand
   | InputMouseCommand
   | InputKeyboardCommand
-  | InputTouchCommand;
+  | InputTouchCommand
+  | ActionListCommand
+  | ActionDescribeCommand
+  | ActionRunCommand
+  | ActionValidateCommand
+  | ActionSearchCommand
+  | ActionReloadCommand
+  | ActionDryRunCommand
+  | ActionDebugCommand;
 
 // Response types
 export interface SuccessResponse<T = unknown> {
@@ -1058,4 +1066,47 @@ export interface BrowserState {
   browser: Browser | null;
   context: BrowserContext | null;
   page: Page | null;
+}
+
+// Action Commands
+export interface ActionListCommand extends BaseCommand {
+  action: 'action_list';
+  namespace?: string;
+}
+
+export interface ActionDescribeCommand extends BaseCommand {
+  action: 'action_describe';
+  name: string;
+}
+
+export interface ActionRunCommand extends BaseCommand {
+  action: 'action_run';
+  name: string;
+  params?: Record<string, unknown>;
+}
+
+export interface ActionValidateCommand extends BaseCommand {
+  action: 'action_validate';
+  path: string;
+}
+
+export interface ActionSearchCommand extends BaseCommand {
+  action: 'action_search';
+  keyword: string;
+}
+
+export interface ActionReloadCommand extends BaseCommand {
+  action: 'action_reload';
+}
+
+export interface ActionDryRunCommand extends BaseCommand {
+  action: 'action_dry_run';
+  name: string;
+  params?: Record<string, unknown>;
+}
+
+export interface ActionDebugCommand extends BaseCommand {
+  action: 'action_debug';
+  name: string;
+  params?: Record<string, unknown>;
 }

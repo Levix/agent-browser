@@ -17,6 +17,115 @@ pub fn print_response(resp: &Response, json_mode: bool, action: Option<&str>) {
     }
 
     if let Some(data) = &resp.data {
+        // Action list response
+        if let Some(actions) = data.get("actions").and_then(|v| v.as_array()) {
+            if actions.is_empty() {
+                println!("No actions found");
+            } else {
+                for action in actions {
+                    let name = action.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                    let description = action.get("description").and_then(|v| v.as_str()).unwrap_or("");
+                    println!("\x1b[36m{}\x1b[0m", name);
+                    if !description.is_empty() {
+                        println!("  {}", description);
+                    }
+                }
+            }
+            return;
+        }
+        // Action namespaces response
+        if let Some(namespaces) = data.get("namespaces").and_then(|v| v.as_array()) {
+            if namespaces.is_empty() {
+                println!("No namespaces found");
+            } else {
+                println!("Available namespaces:");
+                for ns in namespaces {
+                    if let Some(name) = ns.as_str() {
+                        println!("  \x1b[36m{}\x1b[0m", name);
+                    }
+                }
+            }
+            return;
+        }
+        // Action definition response
+        if let Some(definition) = data.get("definition") {
+            println!("{}", serde_json::to_string_pretty(definition).unwrap_or_default());
+            return;
+        }
+        // Action validation response
+        if let Some(valid) = data.get("valid").and_then(|v| v.as_bool()) {
+            if valid {
+                println!("\x1b[32m✓\x1b[0m Valid action definition");
+            } else {
+                println!("\x1b[31m✗\x1b[0m Invalid action definition");
+                if let Some(errors) = data.get("errors").and_then(|v| v.as_array()) {
+                    for err in errors {
+                        if let Some(msg) = err.as_str() {
+                            println!("  {}", msg);
+                        }
+                    }
+                }
+            }
+            return;
+        }
+        // Action run result
+        if let Some(result) = data.get("result") {
+            if let Some(success) = result.get("success").and_then(|v| v.as_bool()) {
+                if success {
+                    println!("\x1b[32m✓\x1b[0m Action completed successfully");
+                    if let Some(output) = result.get("output") {
+                        println!("{}", serde_json::to_string_pretty(output).unwrap_or_default());
+                    }
+                } else {
+                    println!("\x1b[31m✗\x1b[0m Action failed");
+                    if let Some(error) = result.get("error").and_then(|v| v.as_str()) {
+                        println!("  {}", error);
+                    }
+                }
+            }
+            return;
+        }
+        // Action search results
+        if let Some(results) = data.get("results").and_then(|v| v.as_array()) {
+            if results.is_empty() {
+                println!("No actions found");
+            } else {
+                println!("Found {} action(s):", results.len());
+                for action in results {
+                    let name = action.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                    let description = action.get("description").and_then(|v| v.as_str()).unwrap_or("");
+                    println!("\x1b[36m{}\x1b[0m", name);
+                    if !description.is_empty() {
+                        println!("  {}", description);
+                    }
+                }
+            }
+            return;
+        }
+        // Action dry-run/debug plan
+        if let Some(plan) = data.get("plan") {
+            println!("Execution plan:");
+            if let Some(steps) = plan.get("steps").and_then(|v| v.as_array()) {
+                for (i, step) in steps.iter().enumerate() {
+                    let action = step.get("action").and_then(|v| v.as_str()).unwrap_or("");
+                    println!("  {}. {}", i + 1, action);
+                    if let Some(args) = step.get("args") {
+                        println!("     {}", serde_json::to_string(args).unwrap_or_default());
+                    }
+                }
+            }
+            return;
+        }
+        // Action reload response
+        if let Some(reloaded) = data.get("reloaded").and_then(|v| v.as_bool()) {
+            if reloaded {
+                println!("\x1b[32m✓\x1b[0m Actions reloaded successfully");
+                if let Some(count) = data.get("count").and_then(|v| v.as_i64()) {
+                    println!("  Loaded {} action(s)", count);
+                }
+            }
+            return;
+        }
         // Navigation response
         if let Some(url) = data.get("url").and_then(|v| v.as_str()) {
             if let Some(title) = data.get("title").and_then(|v| v.as_str()) {
@@ -1545,6 +1654,36 @@ Examples:
 "##
         }
 
+        // === Action Commands ===
+        "action" => r##"
+agent-browser action - Semantic action registry operations
+
+Usage: agent-browser action <subcommand> [args]
+
+Subcommands:
+  list [namespace]                  List available actions
+  describe <action>                 Show action definition
+  run <action> [--param k=v]...     Execute an action
+  validate <file>                   Validate YAML definition
+  search <keyword>                  Search actions by keyword
+  reload                            Reload action definitions
+  dry-run <action> [--param k=v]... Show execution plan
+  debug <action> [--param k=v]...   Execute with debug output
+
+Global Options:
+  --json                Output as JSON
+  --session <name>      Use specific session
+
+Examples:
+  agent-browser action list
+  agent-browser action list common
+  agent-browser action describe common:login
+  agent-browser action run common:login --param username=test --param password=pass123
+  agent-browser action validate ./actions/custom.yaml
+  agent-browser action search "login"
+  agent-browser action dry-run common:form:submit --param button="Submit"
+  agent-browser action debug common:login --param username=test
+"##,
         _ => return false,
     };
     println!("{}", help.trim());
@@ -1624,6 +1763,13 @@ Debug:
   console [--clear]          View console logs
   errors [--clear]           View page errors
   highlight <sel>            Highlight element
+
+Actions:
+  action list [namespace]           List available actions
+  action describe <action>          Show action definition
+  action run <action> [--param]     Execute an action
+  action validate <file>            Validate YAML definition
+  action search <keyword>           Search actions
 
 Sessions:
   session                    Show current session name
