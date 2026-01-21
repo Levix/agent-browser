@@ -259,29 +259,31 @@
 
 ### 7.1 配置文件
 
-- [ ] 支持 `~/.agent-browser/config.yaml` 全局配置
-- [ ] 支持项目级 `.agent-browser/config.yaml`
-- [ ] 支持 `actions.paths` - 额外加载路径
-- [ ] 支持 `actions.packages` - npm 包引用
-- [ ] 支持 `default_timeout` - 默认超时
-- [ ] 支持 `max_depth` - 最大递归深度
-- [ ] 支持 `max_steps` - 最大步骤数
-- [ ] 支持 `debug` - 调试模式开关
-- [ ] 支持 `detect_version` - 版本检测开关
+- [x] 支持 `~/.agent-browser/config.yaml` 全局配置
+- [x] 支持项目级 `.agent-browser/config.yaml`
+- [x] 支持 `actions.paths` - 额外加载路径
+- [x] 支持 `actions.packages` - npm 包引用
+- [x] 支持 `default_timeout` - 默认超时
+- [x] 支持 `max_depth` - 最大递归深度
+- [x] 支持 `max_steps` - 最大步骤数
+- [x] 支持 `debug` - 调试模式开关
+- [x] 支持 `detect_version` - 版本检测开关
 
 ### 7.2 环境变量
 
-- [ ] `AGENT_BROWSER_ACTIONS_PATH` - 操作定义路径
-- [ ] `AGENT_BROWSER_ACTIONS_DEBUG` - 调试模式
-- [ ] `AGENT_BROWSER_ACTIONS_TIMEOUT` - 超时配置
-- [ ] `AGENT_BROWSER_ACTIONS_MAX_DEPTH` - 最大深度
+- [x] `AGENT_BROWSER_ACTIONS_PATH` - 操作定义路径
+- [x] `AGENT_BROWSER_ACTIONS_DEBUG` - 调试模式
+- [x] `AGENT_BROWSER_ACTIONS_TIMEOUT` - 超时配置
+- [x] `AGENT_BROWSER_ACTIONS_MAX_DEPTH` - 最大深度
+- [x] `AGENT_BROWSER_ACTIONS_MAX_STEPS` - 最大步骤数
+- [x] `AGENT_BROWSER_ACTIONS_DETECT_VERSION` - 版本检测开关
 
 ### 7.3 路径解析与优先级
 
-- [ ] 实现配置加载优先级（环境变量 > 项目 > 用户 > 内置）
-- [ ] 实现路径规范化（统一为 POSIX 风格）
-- [ ] 实现相对路径解析
-- [ ] 实现波浪线（~）展开
+- [x] 实现配置加载优先级（环境变量 > 项目 > 用户 > 内置）
+- [x] 实现路径规范化（统一为 POSIX 风格）
+- [x] 实现相对路径解析
+- [x] 实现波浪线（~）展开
 
 ---
 
@@ -588,7 +590,8 @@
 - [ ] src/actions/executor.ts - 执行引擎
 - [x] src/actions/version.ts - 版本管理器（完整实现，含高级集成函数）
 - [x] src/actions/selectors.ts - 选择器管理器（完整实现，含降级策略）
-- [x] src/actions/index.ts - 统一导出
+- [x] src/actions/config.ts - 配置管理器（完整实现，含路径解析、环境变量、优先级合并）
+- [x] src/actions/index.ts - 统一导出（已集成配置系统）
 - [x] src/types.ts - Command 类型扩展（新增 Action 命令类型与响应类型）
 - [x] src/protocol.ts - 协议 Schema（新增 Action 命令的 Zod 校验）
 - [x] src/actions.ts - 命令处理器（新增 8 个 Action 命令处理函数）
@@ -604,8 +607,9 @@
 - [ ] 示例操作定义（docs/examples/）
 
 ### 15.4 配置文件
-- [ ] 全局配置示例（~/.agent-browser/config.yaml.example）
-- [ ] 项目配置示例（.agent-browser/config.yaml.example）
+- [x] 根目录配置示例（config.yaml.example）
+- [x] 用户配置示例（docs/examples/user-config.yaml）
+- [x] 项目配置示例（.agent-browser/config.yaml.example）
 
 ### 15.5 测试
 - [x] src/actions/vars.tokenizer.test.ts - 词法分析器测试
@@ -616,7 +620,8 @@
 - [x] src/actions/registry.test.ts - Registry 测试（合并规则、查询、搜索）
 - [x] src/actions/version.test.ts - 版本检测与兼容性测试（43 个测试全部通过）
 - [x] src/actions/selectors.test.ts - 选择器降级策略测试（40 个测试全部通过）
-- [ ] src/actions/*.test.ts - 其他单元测试
+- [x] src/actions/config.test.ts - 配置管理测试（34 个测试全部通过，含路径解析、环境变量、优先级合并）
+- [ ] src/actions/executor.test.ts - 执行器测试
 - [ ] test/actions-e2e.test.ts - E2E 测试
 - [ ] test/actions-security.test.ts - 安全性测试
 - [ ] test/fixtures/ - 测试用例数据
@@ -632,6 +637,7 @@
 - [x] docs/expression-evaluator.md - 表达式求值器使用文档
 - [x] src/actions/README.version.md - 版本管理与兼容性使用文档
 - [x] src/actions/README.selectors.md - 选择器降级策略使用文档
+- [x] src/actions/README.config.md - 配置管理使用文档（含环境变量、路径解析、优先级说明）
 - [ ] skills/agent-browser/SKILL.md - 更新 AI Agent 使用指南
 
 ### 15.7 依赖

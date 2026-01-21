@@ -1,0 +1,38 @@
+# User-Level Configuration Example
+# Location: ~/.agent-browser/config.yaml
+#
+# This is your personal configuration that applies to all projects.
+# It should be placed in your home directory: ~/.agent-browser/config.yaml
+
+actions:
+  # Personal action library
+  # These paths are global and apply to all projects
+  paths:
+    - ~/my-browser-actions           # Your personal action library
+    # - ~/workspace/shared-actions   # Shared with your team
+
+  # Personal NPM packages
+  packages: []
+    # - "@myusername/personal-actions"
+
+  # Your preferred timeout
+  default_timeout: 30000
+
+  # Global limits
+  max_depth: 10
+  max_steps: 100
+
+  # Debug mode (typically false in user config)
+  debug: false
+
+  # Version detection
+  detect_version: true
+
+# Example: Override settings per environment
+# You can create multiple config files and symlink them:
+#
+# Development:
+#   ln -s ~/.agent-browser/config.dev.yaml ~/.agent-browser/config.yaml
+#
+# Production:
+#   ln -s ~/.agent-browser/config.prod.yaml ~/.agent-browser/config.yaml

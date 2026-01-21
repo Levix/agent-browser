@@ -1,0 +1,98 @@
+# Agent Browser Configuration Example
+# This file serves as a template for both:
+# - User-level config: ~/.agent-browser/config.yaml
+# - Project-level config: .agent-browser/config.yaml
+#
+# Configuration Priority (highest to lowest):
+# 1. Environment variables (AGENT_BROWSER_ACTIONS_*)
+# 2. Project-level config (.agent-browser/config.yaml)
+# 3. User-level config (~/.agent-browser/config.yaml)
+# 4. Built-in defaults
+
+# ============================================================================
+# Semantic Actions Configuration
+# ============================================================================
+actions:
+  # Additional paths to load action definitions from
+  # Paths can be:
+  # - Absolute: /path/to/actions or C:\path\to\actions
+  # - Relative to config file: ./custom-actions or ../shared-actions
+  # - Using tilde expansion: ~/my-actions
+  #
+  # Multiple paths will be loaded and merged, with later paths overriding earlier ones
+  paths: []
+    # Example paths:
+    # - ./custom-actions          # Project-specific actions
+    # - ~/shared-actions          # Personal action library
+    # - /opt/company/actions      # Company-wide actions
+
+  # NPM packages containing action definitions (future feature)
+  # Packages should export a directory with .yaml/.yml files
+  packages: []
+    # Example packages:
+    # - "@myorg/browser-actions"
+    # - "eresh-actions"
+
+  # Default timeout for all actions (milliseconds)
+  # Individual actions can override this value using the 'timeout' field
+  # Can be overridden by: AGENT_BROWSER_ACTIONS_TIMEOUT
+  default_timeout: 30000  # 30 seconds
+
+  # Maximum recursion depth when actions call other actions via 'run' step
+  # Prevents infinite loops and stack overflow
+  # Can be overridden by: AGENT_BROWSER_ACTIONS_MAX_DEPTH
+  max_depth: 10
+
+  # Maximum number of steps in a single action execution
+  # Prevents resource exhaustion from runaway actions
+  # Can be overridden by: AGENT_BROWSER_ACTIONS_MAX_STEPS
+  max_steps: 100
+
+  # Enable debug mode for detailed logging
+  # When enabled, prints:
+  # - Action loading information
+  # - Parameter resolution details
+  # - Step execution details
+  # - Variable interpolation results
+  # - Selector fallback attempts
+  #
+  # Can be overridden by: AGENT_BROWSER_ACTIONS_DEBUG=true
+  debug: false
+
+  # Enable automatic component version detection
+  # When enabled, the system will:
+  # - Detect component versions from the page (e.g., window.__ERESH_VERSION__)
+  # - Apply version-specific selector overrides
+  # - Select compatible action definitions
+  #
+  # Can be overridden by: AGENT_BROWSER_ACTIONS_DETECT_VERSION=true
+  detect_version: true
+
+# ============================================================================
+# Environment Variables Reference
+# ============================================================================
+#
+# All settings above can be overridden by environment variables:
+#
+# AGENT_BROWSER_ACTIONS_PATH       - Colon-separated paths (Unix) or semicolon (Windows)
+#                                    Example: export AGENT_BROWSER_ACTIONS_PATH="~/actions:./local-actions"
+#
+# AGENT_BROWSER_ACTIONS_DEBUG      - Set to "true" or "1" to enable debug mode
+#                                    Example: export AGENT_BROWSER_ACTIONS_DEBUG=true
+#
+# AGENT_BROWSER_ACTIONS_TIMEOUT    - Default timeout in milliseconds
+#                                    Example: export AGENT_BROWSER_ACTIONS_TIMEOUT=60000
+#
+# AGENT_BROWSER_ACTIONS_MAX_DEPTH  - Maximum recursion depth
+#                                    Example: export AGENT_BROWSER_ACTIONS_MAX_DEPTH=15
+#
+# AGENT_BROWSER_ACTIONS_MAX_STEPS  - Maximum number of steps
+#                                    Example: export AGENT_BROWSER_ACTIONS_MAX_STEPS=200
+#
+# AGENT_BROWSER_ACTIONS_DETECT_VERSION - Set to "false" or "0" to disable version detection
+#                                        Example: export AGENT_BROWSER_ACTIONS_DETECT_VERSION=false
+
+# ============================================================================
+# Browser Configuration (future)
+# ============================================================================
+# Add other agent-browser configurations here as needed

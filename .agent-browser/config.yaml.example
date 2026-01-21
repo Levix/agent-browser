@@ -1,0 +1,24 @@
+# Project-Level Configuration Example
+# Location: .agent-browser/config.yaml (in project root)
+#
+# This configuration is specific to this project and overrides user-level settings.
+# Paths specified here are resolved relative to this file's directory.
+
+actions:
+  # Project-specific action definitions
+  # These are relative to the project root
+  paths:
+    - ./actions               # Project's custom actions
+    # - ../shared/actions     # Shared actions in parent directory
+
+  # Project-specific packages
+  packages: []
+    # - "@myproject/custom-actions"
+
+  # Project-specific timeout (e.g., longer for slow test environments)
+  # default_timeout: 60000
+
+  # Override debug mode for development
+  # debug: true
+
+  # Other settings inherit from user-level config unless explicitly set here
