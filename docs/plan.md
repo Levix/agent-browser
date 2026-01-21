@@ -150,53 +150,53 @@
 ### 4.1 Step 执行引擎（src/actions/executor.ts）
 
 #### 4.1.1 基础执行
-- [ ] 支持 action step 解析与执行
-- [ ] 支持 `when` 条件判断
-- [ ] 支持 `timeout` 覆盖
-- [ ] 支持 `output` 字段输出到 context
-- [ ] 支持 step 之间的数据传递
+- [x] 支持 action step 解析与执行
+- [x] 支持 `when` 条件判断
+- [x] 支持 `timeout` 覆盖
+- [x] 支持 `output` 字段输出到 context
+- [x] 支持 step 之间的数据传递
 
 #### 4.1.2 错误处理与重试
-- [ ] 支持 `retry` 重试机制
-- [ ] 支持 `on_error` 策略（continue/abort/fallback）
-- [ ] 支持 `fallback` 子步骤
-- [ ] 实现指数退避重试（可选）
-- [ ] 捕获并转换 Playwright 错误
+- [x] 支持 `retry` 重试机制
+- [x] 支持 `on_error` 策略（continue/abort/fallback）
+- [x] 支持 `fallback` 子步骤
+- [x] 实现指数退避重试
+- [x] 捕获并转换 Playwright 错误
 
 #### 4.1.3 安全与资源限制
-- [ ] 实现递归深度限制（max_depth: 10）
-- [ ] 实现单步超时控制（step_timeout: 30s）
-- [ ] 实现整体超时控制（action_timeout: 5min）
-- [ ] 实现最大步骤数限制（max_steps: 100）
-- [ ] 防止无限循环调用
+- [x] 实现递归深度限制（max_depth: 10）
+- [x] 实现单步超时控制（step_timeout: 30s）
+- [x] 实现整体超时控制（action_timeout: 5min）
+- [x] 实现最大步骤数限制（max_steps: 100）
+- [x] 防止无限循环调用
 
 #### 4.1.4 调试与追踪
-- [ ] 实现 dry-run 模式（仅解析不执行）
-- [ ] 实现 debug 模式（详细日志输出）
-- [ ] 实现 step tracing（记录每步执行信息）
-- [ ] 实现 context dump（错误时输出完整上下文）
-- [ ] 敏感参数脱敏（secret: true）
+- [x] 实现 dry-run 模式（仅解析不执行）
+- [x] 实现 debug 模式（详细日志输出）
+- [x] 实现 step tracing（记录每步执行信息）
+- [x] 实现 context dump（错误时输出完整上下文）
+- [x] 敏感参数脱敏（secret: true）
 
 ### 4.2 内置 step action 映射
 
-- [ ] `open` → navigate
-- [ ] `click` → click
-- [ ] `fill` → fill
-- [ ] `type` → type
-- [ ] `press` → press
-- [ ] `wait` → wait
-- [ ] `snapshot` → snapshot
-- [ ] `eval` → evaluate
-- [ ] `find` → semantic locator
-- [ ] `run` → 调用另一个 action
-- [ ] `fail` → 主动失败
+- [x] `open` → navigate
+- [x] `click` → click
+- [x] `fill` → fill
+- [x] `type` → type
+- [x] `press` → press
+- [x] `wait` → wait
+- [x] `snapshot` → snapshot
+- [x] `eval` → evaluate
+- [x] `find` → semantic locator
+- [x] `run` → 调用另一个 action
+- [x] `fail` → 主动失败
 
 ### 4.3 结果聚合与返回（executor.ts）
 
-- [ ] 收集 step 输出（output 字段）
-- [ ] 执行 `returns` 表达式
-- [ ] 执行 `verify` 校验
-- [ ] 返回结构化结果
+- [x] 收集 step 输出（output 字段）
+- [x] 执行 `returns` 表达式
+- [x] 执行 `verify` 校验
+- [x] 返回结构化结果
 
 ---
 
