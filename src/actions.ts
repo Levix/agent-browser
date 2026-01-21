@@ -119,8 +119,25 @@ import type {
   RecordingRestartData,
   InputEventData,
   StylesData,
+  ActionListCommand,
+  ActionDescribeCommand,
+  ActionRunCommand,
+  ActionValidateCommand,
+  ActionSearchCommand,
+  ActionReloadCommand,
+  ActionDryRunCommand,
+  ActionDebugCommand,
+  ActionListData,
+  ActionDescribeData,
+  ActionRunData,
+  ActionValidateData,
+  ActionSearchData,
+  ActionReloadData,
+  ActionDryRunData,
+  ActionDebugData,
 } from './types.js';
 import { successResponse, errorResponse } from './protocol.js';
+import * as actionService from './actions/index.js';
 
 // Callback for screencast frames - will be set by the daemon when streaming is active
 let screencastFrameCallback: ((frame: ScreencastFrame) => void) | null = null;
@@ -444,6 +461,22 @@ export async function executeCommand(command: Command, browser: BrowserManager):
         return await handleRecordingStop(command, browser);
       case 'recording_restart':
         return await handleRecordingRestart(command, browser);
+      case 'action_list':
+        return await handleActionList(command, browser);
+      case 'action_describe':
+        return await handleActionDescribe(command, browser);
+      case 'action_run':
+        return await handleActionRun(command, browser);
+      case 'action_validate':
+        return await handleActionValidate(command, browser);
+      case 'action_search':
+        return await handleActionSearch(command, browser);
+      case 'action_reload':
+        return await handleActionReload(command, browser);
+      case 'action_dry_run':
+        return await handleActionDryRun(command, browser);
+      case 'action_debug':
+        return await handleActionDebug(command, browser);
       default: {
         // TypeScript narrows to never here, but we handle it for safety
         const unknownCommand = command as { id: string; action: string };
@@ -2023,4 +2056,119 @@ async function handleRecordingRestart(
     previousPath: result.previousPath,
     stopped: result.stopped,
   });
+}
+
+// ============================================================================
+// Action System Handlers
+// ============================================================================
+
+async function handleActionList(
+  command: ActionListCommand,
+  browser: BrowserManager
+): Promise<Response<ActionListData>> {
+  try {
+    const result = await actionService.listActions(command.namespace);
+    return successResponse(command.id, result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return errorResponse(command.id, message) as Response<ActionListData>;
+  }
+}
+
+async function handleActionDescribe(
+  command: ActionDescribeCommand,
+  browser: BrowserManager
+): Promise<Response<ActionDescribeData>> {
+  try {
+    const result = await actionService.describeAction(command.name);
+    return successResponse(command.id, result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return errorResponse(command.id, message) as Response<ActionDescribeData>;
+  }
+}
+
+async function handleActionRun(
+  command: ActionRunCommand,
+  browser: BrowserManager
+): Promise<Response<ActionRunData>> {
+  try {
+    const result = await actionService.executeActionCommand(command.name, command.params, browser);
+    return successResponse(command.id, result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return errorResponse(command.id, message) as Response<ActionRunData>;
+  }
+}
+
+async function handleActionValidate(
+  command: ActionValidateCommand,
+  browser: BrowserManager
+): Promise<Response<ActionValidateData>> {
+  try {
+    const result = await actionService.validateAction(command.path);
+    return successResponse(command.id, result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return errorResponse(command.id, message) as Response<ActionValidateData>;
+  }
+}
+
+async function handleActionSearch(
+  command: ActionSearchCommand,
+  browser: BrowserManager
+): Promise<Response<ActionSearchData>> {
+  try {
+    const result = await actionService.searchActions(command.keyword);
+    return successResponse(command.id, result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return errorResponse(command.id, message) as Response<ActionSearchData>;
+  }
+}
+
+async function handleActionReload(
+  command: ActionReloadCommand,
+  browser: BrowserManager
+): Promise<Response<ActionReloadData>> {
+  try {
+    const result = await actionService.reloadActions();
+    return successResponse(command.id, result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return errorResponse(command.id, message) as Response<ActionReloadData>;
+  }
+}
+
+async function handleActionDryRun(
+  command: ActionDryRunCommand,
+  browser: BrowserManager
+): Promise<Response<ActionDryRunData>> {
+  try {
+    const result = await actionService.dryRun(command.name, command.params);
+    return successResponse(command.id, result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return errorResponse(command.id, message) as Response<ActionDryRunData>;
+  }
+}
+
+async function handleActionDebug(
+  command: ActionDebugCommand,
+  browser: BrowserManager
+): Promise<Response<ActionDebugData>> {
+  try {
+    const page = browser.getPage();
+    if (!page) {
+      return errorResponse(
+        command.id,
+        'No active page. Please launch browser first.'
+      ) as Response<ActionDebugData>;
+    }
+    const result = await actionService.debugAction(command.name, command.params, page);
+    return successResponse(command.id, result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return errorResponse(command.id, message) as Response<ActionDebugData>;
+  }
 }

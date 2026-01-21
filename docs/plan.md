@@ -233,25 +233,25 @@
 
 ### 6.1 新增命令类型（src/types.ts）
 
-- [ ] `ActionListCommand` - 列出操作
-- [ ] `ActionDescribeCommand` - 获取操作定义
-- [ ] `ActionRunCommand` - 执行操作
-- [ ] `ActionDryRunCommand` - 干跑模式
-- [ ] `ActionDebugCommand` - 调试模式
-- [ ] `ActionValidateCommand` - 校验定义文件
-- [ ] `ActionSearchCommand` - 关键词搜索
-- [ ] `ActionReloadCommand` - 重新加载
-- [ ] 定义各命令的参数和返回值类型
+- [x] `ActionListCommand` - 列出操作
+- [x] `ActionDescribeCommand` - 获取操作定义
+- [x] `ActionRunCommand` - 执行操作
+- [x] `ActionDryRunCommand` - 干跑模式
+- [x] `ActionDebugCommand` - 调试模式
+- [x] `ActionValidateCommand` - 校验定义文件
+- [x] `ActionSearchCommand` - 关键词搜索
+- [x] `ActionReloadCommand` - 重新加载
+- [x] 定义各命令的参数和返回值类型
 
 ### 6.2 服务入口（src/actions/index.ts）
 
-- [ ] 暴露 `list/describe/run/validate/search/reload` API
-- [ ] 与 `browser.ts`/`actions.ts` 交互
+- [x] 暴露 `list/describe/run/validate/search/reload` API
+- [x] 与 `browser.ts`/`actions.ts` 交互
 
 ### 6.3 注册到 command router
 
-- [ ] 在 daemon 请求路由中注册 action 相关命令
-- [ ] 将 command 转发到 Action Registry Service
+- [x] 在 daemon 请求路由中注册 action 相关命令
+- [x] 将 command 转发到 Action Registry Service
 
 ---
 
@@ -588,8 +588,10 @@
 - [ ] src/actions/executor.ts - 执行引擎
 - [x] src/actions/version.ts - 版本管理器（完整实现，含高级集成函数）
 - [x] src/actions/selectors.ts - 选择器管理器（完整实现，含降级策略）
-- [ ] src/actions/index.ts - 统一导出
-- [ ] src/types.ts - Command 类型扩展
+- [x] src/actions/index.ts - 统一导出
+- [x] src/types.ts - Command 类型扩展（新增 Action 命令类型与响应类型）
+- [x] src/protocol.ts - 协议 Schema（新增 Action 命令的 Zod 校验）
+- [x] src/actions.ts - 命令处理器（新增 8 个 Action 命令处理函数）
 
 ### 15.2 CLI 实现
 - [ ] cli/src/commands.rs - action 子命令

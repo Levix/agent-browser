@@ -1110,3 +1110,119 @@ export interface ActionDebugCommand extends BaseCommand {
   name: string;
   params?: Record<string, unknown>;
 }
+
+
+// Action Response Data Types
+export interface ActionListData {
+  namespaces: string[];
+  actions: Array<{
+    namespace: string;
+    name: string;
+    description?: string;
+    fullName: string; // namespace:name format
+  }>;
+}
+
+export interface ActionDescribeData {
+  namespace: string;
+  name: string;
+  version: string;
+  description?: string;
+  params?: Array<{
+    name: string;
+    type: string;
+    required: boolean;
+    default?: unknown;
+    description?: string;
+  }>;
+  selectors?: Record<string, unknown>;
+  steps: unknown[];
+  compatibility?: {
+    min_version?: string;
+    max_version?: string;
+  };
+  sourcePath: string;
+}
+
+export interface ActionRunData {
+  success: boolean;
+  result?: unknown;
+  error?: {
+    code: string;
+    message: string;
+    step?: number;
+    details?: unknown;
+  };
+  executionTime?: number;
+  steps?: Array<{
+    action: string;
+    status: 'success' | 'failed' | 'skipped';
+    duration: number;
+    output?: unknown;
+  }>;
+}
+
+export interface ActionValidateData {
+  valid: boolean;
+  errors?: Array<{
+    path: string;
+    message: string;
+    code: string;
+  }>;
+  warnings?: Array<{
+    path: string;
+    message: string;
+  }>;
+}
+
+export interface ActionSearchData {
+  matches: Array<{
+    namespace: string;
+    name: string;
+    fullName: string;
+    description?: string;
+    score: number;
+  }>;
+  total: number;
+}
+
+export interface ActionReloadData {
+  loaded: number;
+  namespaces: string[];
+  actions: number;
+}
+
+export interface ActionDryRunData {
+  valid: boolean;
+  plan: Array<{
+    step: number;
+    action: string;
+    args: Record<string, unknown>;
+    condition?: string;
+  }>;
+  expectedVariables: string[];
+  warnings?: string[];
+}
+
+export interface ActionDebugData {
+  success: boolean;
+  result?: unknown;
+  trace: Array<{
+    step: number;
+    action: string;
+    args: Record<string, unknown>;
+    status: 'success' | 'failed' | 'skipped';
+    duration: number;
+    context?: Record<string, unknown>;
+    error?: string;
+  }>;
+  finalContext: Record<string, unknown>;
+  executionTime: number;
+}
+
+// Browser state
+export interface BrowserState {
+  browser: Browser | null;
+  context: BrowserContext | null;
+  page: Page | null;
+}

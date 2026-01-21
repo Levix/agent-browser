@@ -686,6 +686,49 @@ const inputTouchSchema = baseCommandSchema.extend({
   modifiers: z.number().optional(),
 });
 
+// Action command schemas
+const actionListSchema = baseCommandSchema.extend({
+  action: z.literal('action_list'),
+  namespace: z.string().optional(),
+});
+
+const actionDescribeSchema = baseCommandSchema.extend({
+  action: z.literal('action_describe'),
+  name: z.string().min(1),
+});
+
+const actionRunSchema = baseCommandSchema.extend({
+  action: z.literal('action_run'),
+  name: z.string().min(1),
+  params: z.record(z.unknown()).optional(),
+});
+
+const actionValidateSchema = baseCommandSchema.extend({
+  action: z.literal('action_validate'),
+  path: z.string().min(1),
+});
+
+const actionSearchSchema = baseCommandSchema.extend({
+  action: z.literal('action_search'),
+  keyword: z.string().min(1),
+});
+
+const actionReloadSchema = baseCommandSchema.extend({
+  action: z.literal('action_reload'),
+});
+
+const actionDryRunSchema = baseCommandSchema.extend({
+  action: z.literal('action_dry_run'),
+  name: z.string().min(1),
+  params: z.record(z.unknown()).optional(),
+});
+
+const actionDebugSchema = baseCommandSchema.extend({
+  action: z.literal('action_debug'),
+  name: z.string().min(1),
+  params: z.record(z.unknown()).optional(),
+});
+
 const pressSchema = baseCommandSchema.extend({
   action: z.literal('press'),
   key: z.string().min(1),
@@ -906,6 +949,14 @@ const commandSchema = z.discriminatedUnion('action', [
   inputMouseSchema,
   inputKeyboardSchema,
   inputTouchSchema,
+  actionListSchema,
+  actionDescribeSchema,
+  actionRunSchema,
+  actionValidateSchema,
+  actionSearchSchema,
+  actionReloadSchema,
+  actionDryRunSchema,
+  actionDebugSchema,
 ]);
 
 // Parse result type
