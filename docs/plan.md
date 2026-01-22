@@ -304,44 +304,44 @@
 
 ### 9.1 错误类型与映射
 
-- [ ] 定义完整的错误码枚举（ActionErrorCode）
-  - [ ] `ACTION_NOT_FOUND` - 操作不存在
-  - [ ] `VALIDATION_ERROR` - 校验失败
-  - [ ] `PARAM_MISSING` - 参数缺失
-  - [ ] `PARAM_TYPE_ERROR` - 参数类型错误
-  - [ ] `SELECTOR_NOT_FOUND` - 选择器不存在
-  - [ ] `ELEMENT_NOT_FOUND` - 元素未找到
-  - [ ] `TIMEOUT` - 超时
-  - [ ] `VERIFY_FAILED` - 验证失败
-  - [ ] `EXPRESSION_ERROR` - 表达式错误
-  - [ ] `MAX_DEPTH_EXCEEDED` - 超过最大深度
-- [ ] 实现 Playwright 错误映射
-- [ ] 标注 `step`、`action`、`sourcePath` 信息
-- [ ] 提供错误建议（suggestion）
-- [ ] 实现错误堆栈追踪
+- [x] 定义完整的错误码枚举（ActionErrorCode）
+  - [x] `ACTION_NOT_FOUND` - 操作不存在
+  - [x] `VALIDATION_ERROR` - 校验失败
+  - [x] `PARAM_MISSING` - 参数缺失
+  - [x] `PARAM_TYPE_ERROR` - 参数类型错误
+  - [x] `SELECTOR_NOT_FOUND` - 选择器不存在
+  - [x] `ELEMENT_NOT_FOUND` - 元素未找到
+  - [x] `TIMEOUT` - 超时
+  - [x] `VERIFY_FAILED` - 验证失败
+  - [x] `EXPRESSION_ERROR` - 表达式错误
+  - [x] `MAX_DEPTH_EXCEEDED` - 超过最大深度
+- [x] 实现 Playwright 错误映射
+- [x] 标注 `step`、`action`、`sourcePath` 信息
+- [x] 提供错误建议（suggestion）
+- [x] 实现错误堆栈追踪
 
 ### 9.2 调试功能
 
 #### 9.2.1 Dry-Run 模式
-- [ ] 实现参数解析（不执行）
-- [ ] 实现流程输出（显示执行计划）
-- [ ] 实现变量插值预览
-- [ ] 输出预期的步骤序列
+- [x] 实现参数解析（不执行）
+- [x] 实现流程输出（显示执行计划）
+- [x] 实现变量插值预览
+- [x] 输出预期的步骤序列
 
 #### 9.2.2 Debug 模式
-- [ ] 打印操作加载信息
-- [ ] 打印参数解析结果
-- [ ] 打印每步执行详情（输入、输出、耗时）
-- [ ] 打印上下文变量快照
-- [ ] 打印选择器降级过程
-- [ ] 打印版本检测结果
+- [x] 打印操作加载信息
+- [x] 打印参数解析结果
+- [x] 打印每步执行详情（输入、输出、耗时）
+- [x] 打印上下文变量快照
+- [x] 打印选择器降级过程
+- [x] 打印版本检测结果
 
 #### 9.2.3 Step Tracing
-- [ ] 记录每步开始时间
-- [ ] 记录每步结束时间
-- [ ] 记录每步执行状态
-- [ ] 记录每步返回值
-- [ ] 生成执行时间线
+- [x] 记录每步开始时间
+- [x] 记录每步结束时间
+- [x] 记录每步执行状态
+- [x] 记录每步返回值
+- [x] 生成执行时间线
 
 ---
 
@@ -591,7 +591,9 @@
 - [x] src/actions/version.ts - 版本管理器（完整实现，含高级集成函数）
 - [x] src/actions/selectors.ts - 选择器管理器（完整实现，含降级策略）
 - [x] src/actions/config.ts - 配置管理器（完整实现，含路径解析、环境变量、优先级合并）
-- [x] src/actions/index.ts - 统一导出（已集成配置系统）
+- [x] src/actions/errors.ts - 错误处理与映射（完整实现，含 Playwright 错误映射、错误建议生成器）
+- [x] src/actions/debug.ts - 调试工具（完整实现，含 Dry-Run、Debug 模式、Step Tracing）
+- [x] src/actions/index.ts - 统一导出（已集成配置系统、错误处理、调试工具）
 - [x] src/types.ts - Command 类型扩展（新增 Action 命令类型与响应类型）
 - [x] src/protocol.ts - 协议 Schema（新增 Action 命令的 Zod 校验）
 - [x] src/actions.ts - 命令处理器（新增 8 个 Action 命令处理函数）
@@ -602,8 +604,8 @@
 - [ ] bin/agent-browser - CLI 入口（更新）
 
 ### 15.3 操作定义
-- [ ] actions/common.yaml - 通用操作
-- [ ] actions/eresh.yaml - Eresh 组件库操作（可选）
+- [x] actions/common.yaml - 通用操作
+- [x] actions/eresh.yaml - Eresh 组件库操作（可选）
 - [ ] 示例操作定义（docs/examples/）
 
 ### 15.4 配置文件
@@ -621,6 +623,8 @@
 - [x] src/actions/version.test.ts - 版本检测与兼容性测试（43 个测试全部通过）
 - [x] src/actions/selectors.test.ts - 选择器降级策略测试（40 个测试全部通过）
 - [x] src/actions/config.test.ts - 配置管理测试（34 个测试全部通过，含路径解析、环境变量、优先级合并）
+- [x] src/actions/errors.test.ts - 错误处理测试（24 个测试全部通过）
+- [x] src/actions/debug.test.ts - 调试工具测试（22 个测试全部通过，含 Dry-Run、Debug、Tracing）
 - [ ] src/actions/executor.test.ts - 执行器测试
 - [ ] test/actions-e2e.test.ts - E2E 测试
 - [ ] test/actions-security.test.ts - 安全性测试

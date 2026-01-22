@@ -28,6 +28,10 @@ import { loadActions } from './loader.js';
 import * as fs from 'fs';
 import * as path from 'path';
 
+// Export error handling and debugging utilities
+export * from './errors.js';
+export * from './debug.js';
+
 // ============================================================================
 // Global Registry Instance
 // ============================================================================
