@@ -1,0 +1,313 @@
+# Common Actions - 通用操作定义
+# 提供跨项目通用的基础操作，如登录、表单提交、对话框处理等
+
+namespace: common
+version: 1.0.0
+description: 通用的跨项目操作集，包含登录、表单、对话框等常见场景
+
+# 选择器定义
+selectors:
+  # 登录相关选择器
+  username_input:
+    primary: 'input[type="text"][name*="user"], input[type="text"][id*="user"], input[type="email"]'
+    fallback: 'input[type="text"]:first-of-type, input[placeholder*="用户"], input[placeholder*="邮箱"]'
+  
+  password_input:
+    primary: 'input[type="password"][name*="pass"], input[type="password"][id*="pass"]'
+    fallback: 'input[type="password"]'
+  
+  login_button:
+    primary: 'button[type="submit"]:has-text("登录"), button:has-text("登录"), input[type="submit"][value*="登录"]'
+    fallback: 'button[type="submit"], input[type="submit"]'
+  
+  # 表单相关选择器
+  submit_button:
+    primary: 'button[type="submit"], input[type="submit"]'
+    fallback: 'button:has-text("提交"), button:has-text("确定"), button:has-text("保存")'
+  
+  cancel_button:
+    primary: 'button[type="button"]:has-text("取消"), button:has-text("取消")'
+    fallback: 'button:has-text("返回"), a:has-text("取消")'
+  
+  # 对话框相关选择器
+  dialog_confirm:
+    primary: 'button:has-text("确定"), button:has-text("确认"), button.confirm, button[data-action="confirm"]'
+    fallback: 'button[type="button"]:first-of-type, .modal button:first-of-type'
+  
+  dialog_cancel:
+    primary: 'button:has-text("取消"), button.cancel, button[data-action="cancel"]'
+    fallback: 'button:has-text("关闭"), button.close, .modal button:last-of-type'
+
+# 操作定义
+actions:
+  # 通用登录操作
+  login:
+    description: 通用的用户登录操作，支持用户名/邮箱和密码登录
+    params:
+      username:
+        type: string
+        required: true
+        description: 用户名或邮箱
+      password:
+        type: string
+        required: true
+        secret: true
+        description: 登录密码
+      remember_me:
+        type: boolean
+        required: false
+        default: false
+        description: 是否记住登录状态
+      wait_for_navigation:
+        type: boolean
+        required: false
+        default: true
+        description: 是否等待页面跳转完成
+    
+    steps:
+      - action: fill
+        selector: ${selectors.username_input}
+        args:
+          value: ${params.username}
+        timeout: 5000
+        on_error: abort
+      
+      - action: fill
+        selector: ${selectors.password_input}
+        args:
+          value: ${params.password}
+        timeout: 5000
+        on_error: abort
+      
+      - action: click
+        selector: ${selectors.login_button}
+        timeout: 5000
+        on_error: abort
+      
+      - action: wait
+        when: ${params.wait_for_navigation}
+        args:
+          for: networkidle
+        timeout: 10000
+        on_error: continue
+    
+    returns: ${steps[3].success}
+    
+    verify:
+      condition: ${steps[3].success}
+      message: "登录操作执行完成"
+
+  # 表单提交操作
+  form:submit:
+    description: 通用的表单提交操作，支持填充多个字段并提交
+    params:
+      fields:
+        type: object
+        required: false
+        description: 要填充的表单字段，key 为字段选择器，value 为填充值
+      submit_selector:
+        type: string
+        required: false
+        description: 提交按钮选择器（可选，默认使用内置选择器）
+      wait_after_submit:
+        type: boolean
+        required: false
+        default: true
+        description: 提交后是否等待响应
+    
+    steps:
+      - action: eval
+        when: ${params.fields}
+        args:
+          script: |
+            Object.entries(${params.fields}).forEach(([selector, value]) => {
+              const element = document.querySelector(selector);
+              if (element) {
+                if (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA') {
+                  element.value = value;
+                } else if (element.tagName === 'SELECT') {
+                  element.value = value;
+                }
+                element.dispatchEvent(new Event('input', { bubbles: true }));
+                element.dispatchEvent(new Event('change', { bubbles: true }));
+              }
+            });
+        output: fill_result
+        on_error: continue
+      
+      - action: click
+        selector: ${params.submit_selector || selectors.submit_button}
+        timeout: 5000
+        on_error: abort
+      
+      - action: wait
+        when: ${params.wait_after_submit}
+        args:
+          for: networkidle
+        timeout: 10000
+        on_error: continue
+    
+    returns: ${steps[1].success}
+
+  # 对话框确认操作
+  dialog:confirm:
+    description: 确认对话框操作（点击确定/确认按钮）
+    params:
+      selector:
+        type: string
+        required: false
+        description: 对话框确认按钮选择器（可选，默认使用内置选择器）
+      wait_before_click:
+        type: number
+        required: false
+        default: 0
+        description: 点击前等待时间（毫秒）
+      wait_after_click:
+        type: boolean
+        required: false
+        default: false
+        description: 点击后是否等待网络响应
+    
+    steps:
+      - action: wait
+        when: ${params.wait_before_click > 0}
+        args:
+          for: timeout
+          timeout: ${params.wait_before_click}
+      
+      - action: click
+        selector: ${params.selector || selectors.dialog_confirm}
+        timeout: 5000
+        retry: 2
+        on_error: abort
+      
+      - action: wait
+        when: ${params.wait_after_click}
+        args:
+          for: networkidle
+        timeout: 5000
+        on_error: continue
+    
+    returns: ${steps[1].success}
+
+  # 对话框取消操作
+  dialog:cancel:
+    description: 取消对话框操作（点击取消/关闭按钮）
+    params:
+      selector:
+        type: string
+        required: false
+        description: 对话框取消按钮选择器（可选，默认使用内置选择器）
+      wait_before_click:
+        type: number
+        required: false
+        default: 0
+        description: 点击前等待时间（毫秒）
+    
+    steps:
+      - action: wait
+        when: ${params.wait_before_click > 0}
+        args:
+          for: timeout
+          timeout: ${params.wait_before_click}
+      
+      - action: click
+        selector: ${params.selector || selectors.dialog_cancel}
+        timeout: 5000
+        retry: 2
+        on_error: abort
+    
+    returns: ${steps[1].success}
+
+  # 通用导航操作
+  navigate:
+    description: 导航到指定 URL 并等待页面加载完成
+    params:
+      url:
+        type: string
+        required: true
+        description: 目标 URL
+      wait_until:
+        type: string
+        required: false
+        default: networkidle
+        description: 等待条件（load/domcontentloaded/networkidle）
+      timeout:
+        type: number
+        required: false
+        default: 30000
+        description: 超时时间（毫秒）
+    
+    steps:
+      - action: open
+        args:
+          url: ${params.url}
+          waitUntil: ${params.wait_until}
+        timeout: ${params.timeout}
+        on_error: abort
+    
+    returns: ${steps[0].success}
+    
+    verify:
+      condition: ${steps[0].success}
+      message: "页面导航成功"
+
+  # 等待元素出现
+  wait:element:
+    description: 等待指定元素出现在页面上
+    params:
+      selector:
+        type: string
+        required: true
+        description: 元素选择器
+      timeout:
+        type: number
+        required: false
+        default: 10000
+        description: 超时时间（毫秒）
+      state:
+        type: string
+        required: false
+        default: visible
+        description: 等待状态（visible/hidden/attached/detached）
+    
+    steps:
+      - action: wait
+        args:
+          for: selector
+          selector: ${params.selector}
+          state: ${params.state}
+        timeout: ${params.timeout}
+        on_error: abort
+    
+    returns: ${steps[0].success}
+
+  # 截图操作
+  screenshot:
+    description: 对当前页面或指定元素进行截图
+    params:
+      selector:
+        type: string
+        required: false
+        description: 元素选择器（可选，不提供则截取整个页面）
+      path:
+        type: string
+        required: false
+        description: 保存路径（可选）
+      full_page:
+        type: boolean
+        required: false
+        default: true
+        description: 是否截取整个页面（仅在不指定 selector 时有效）
+    
+    steps:
+      - action: snapshot
+        args:
+          selector: ${params.selector}
+          path: ${params.path}
+          fullPage: ${params.full_page}
+        timeout: 10000
+        output: screenshot_path
+        on_error: abort
+    
+    returns: ${steps.screenshot_path}

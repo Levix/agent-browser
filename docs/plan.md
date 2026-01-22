@@ -291,12 +291,12 @@
 
 ### 8.1 common.yaml
 
-- [ ] 创建 [actions/common.yaml](actions/common.yaml)
-- [ ] 定义 `common:login`、`common:form:submit` 等最小可用操作
+- [x] 创建 [actions/common.yaml](actions/common.yaml)
+- [x] 定义 `common:login`、`common:form:submit` 等最小可用操作
 
 ### 8.2 eresh 初始版本（可选先空）
 
-- [ ] 预留 `actions/eresh.yaml`（可先放空）
+- [x] 预留 `actions/eresh.yaml`（可先放空）
 
 ---
 

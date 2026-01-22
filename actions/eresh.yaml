@@ -1,0 +1,41 @@
+# Eresh UI Component Library Actions
+# Eresh 组件库特定操作定义（预留）
+
+namespace: eresh
+version: 1.0.0
+description: Eresh UI 组件库的特定操作，针对 Eresh 组件优化的选择器和交互流程
+
+# 版本兼容性
+compatibility:
+  min_version: "1.0.0"
+  max_version: "2.0.0"
+
+# 选择器定义（待补充）
+selectors:
+  # 示例：Eresh 特定的组件选择器
+  # button:
+  #   primary: '.eresh-button, button[class*="eresh-"]'
+  #   fallback: 'button'
+
+# 操作定义（待补充）
+actions:
+  # 示例：Eresh 特定的操作
+  # button:click:
+  #   description: 点击 Eresh 按钮组件
+  #   params:
+  #     label:
+  #       type: string
+  #       required: true
+  #       description: 按钮文本
+  #   steps:
+  #     - action: click
+  #       selector: ${selectors.button}:has-text("${params.label}")
+
+# 版本覆盖示例（针对不同版本的 Eresh）
+# version_overrides:
+#   "1.5.0":
+#     button:
+#       primary: '.eresh-btn, button[class*="eresh-btn"]'
+#   "2.0.0":
+#     button:
+#       primary: '.e-button, button[class*="e-btn"]'
