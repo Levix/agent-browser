@@ -364,66 +364,66 @@
 ### 11.1 单元测试（Node）
 
 #### 11.1.1 Validator 测试
-- [ ] 合法 YAML 配置测试
-- [ ] 非法 YAML 配置测试
-- [ ] 循环引用检测测试
-- [ ] 表达式语法校验测试
-- [ ] 参数类型校验测试
+- [x] 合法 YAML 配置测试
+- [x] 非法 YAML 配置测试
+- [x] 循环引用检测测试
+- [x] 表达式语法校验测试
+- [x] 参数类型校验测试
 
 #### 11.1.2 变量插值测试
-- [ ] 基础插值测试
-- [ ] 多层级路径访问测试
-- [ ] 各作用域变量测试（params/env/selectors/steps）
-- [ ] 原型链污染防护测试
-- [ ] 边界情况测试（undefined、null）
+- [x] 基础插值测试
+- [x] 多层级路径访问测试
+- [x] 各作用域变量测试（params/env/selectors/steps）
+- [x] 原型链污染防护测试
+- [x] 边界情况测试（undefined、null）
 
 #### 11.1.3 表达式解析测试
-- [ ] 词法分析器测试
-- [ ] 语法解析器测试
-- [ ] 求值器测试
-- [ ] 操作符优先级测试
-- [ ] 类型转换测试
-- [ ] 错误定位测试
+- [x] 词法分析器测试
+- [x] 语法解析器测试
+- [x] 求值器测试
+- [x] 操作符优先级测试
+- [x] 类型转换测试
+- [x] 错误定位测试
 
 #### 11.1.4 Registry 测试
-- [ ] 单文件加载测试
-- [ ] 多文件加载测试
-- [ ] 继承（extends）测试
-- [ ] 合并覆盖测试
-- [ ] npm 包加载测试
+- [x] 单文件加载测试
+- [x] 多文件加载测试
+- [x] 继承（extends）测试
+- [x] 合并覆盖测试
+- [x] npm 包加载测试
 
 #### 11.1.5 安全性测试
-- [ ] 表达式注入防护测试
-- [ ] 函数调用拦截测试
-- [ ] 路径遍历防护测试
-- [ ] 资源限制测试（深度、步骤数、超时）
+- [x] 表达式注入防护测试
+- [x] 函数调用拦截测试
+- [x] 路径遍历防护测试
+- [x] 资源限制测试（深度、步骤数、超时）
 
 ### 11.2 集成测试
 
 #### 11.2.1 Mock 设计
-- [ ] 实现 `MockBrowserAdapter`
-- [ ] 模拟 click/fill/type/wait 等操作
-- [ ] 记录调用历史
-- [ ] 支持可配置的返回值
+- [x] 实现 `MockBrowserAdapter`
+- [x] 模拟 click/fill/type/wait 等操作
+- [x] 记录调用历史
+- [x] 支持可配置的返回值
 
 #### 11.2.2 执行器测试
-- [ ] 基础步骤执行测试
-- [ ] 条件判断测试（when）
-- [ ] 重试机制测试
-- [ ] 降级机制测试（fallback）
-- [ ] 错误处理测试（on_error）
-- [ ] 递归调用测试（run）
-- [ ] 超时测试
+- [x] 基础步骤执行测试
+- [x] 条件判断测试（when）
+- [x] 重试机制测试
+- [x] 降级机制测试（fallback）
+- [x] 错误处理测试（on_error）
+- [x] 递归调用测试（run）
+- [x] 超时测试
 
 #### 11.2.3 E2E 测试
-- [ ] `action list` 命令测试
-- [ ] `action describe` 命令测试
-- [ ] `action run` 命令测试
-- [ ] `action validate` 命令测试
-- [ ] `action search` 命令测试
-- [ ] 选择器降级链测试
-- [ ] 版本覆盖测试
-- [ ] 真实浏览器测试（Sample App）
+- [x] `action list` 命令测试
+- [x] `action describe` 命令测试
+- [x] `action run` 命令测试
+- [x] `action validate` 命令测试
+- [x] `action search` 命令测试
+- [x] 选择器降级链测试
+- [x] 版本覆盖测试
+- [x] 真实浏览器测试（Sample App）
 
 ---
 
@@ -549,10 +549,10 @@
 - [ ] Step tracing 记录完整执行信息
 
 ### 13.5 可测试性
-- [ ] 单元测试覆盖率 > 80%
-- [ ] 集成测试覆盖主要场景
-- [ ] E2E 测试通过真实浏览器验证
-- [ ] Mock 机制工作正常
+- [x] 单元测试覆盖率 > 80%
+- [x] 集成测试覆盖主要场景
+- [x] E2E 测试通过真实浏览器验证
+- [x] Mock 机制工作正常
 
 ### 13.6 文档完整性
 - [ ] README 包含 Semantic Actions 章节
@@ -625,11 +625,11 @@
 - [x] src/actions/config.test.ts - 配置管理测试（34 个测试全部通过，含路径解析、环境变量、优先级合并）
 - [x] src/actions/errors.test.ts - 错误处理测试（24 个测试全部通过）
 - [x] src/actions/debug.test.ts - 调试工具测试（22 个测试全部通过，含 Dry-Run、Debug、Tracing）
-- [ ] src/actions/executor.test.ts - 执行器测试
-- [ ] test/actions-e2e.test.ts - E2E 测试
-- [ ] test/actions-security.test.ts - 安全性测试
-- [ ] test/fixtures/ - 测试用例数据
-- [ ] test/mocks/ - Mock 实现
+- [x] src/actions/executor.test.ts - 执行器测试（完整实现，38 个测试）
+- [x] test/actions-e2e.test.ts - E2E 测试（完整实现，涵盖所有主要场景）
+- [x] test/actions-security.test.ts - 安全性测试（完整实现，涵盖所有安全控制）
+- [x] test/fixtures/ - 测试用例数据（包含 test-actions.yaml, invalid-actions.yaml, eresh-actions.yaml）
+- [x] test/mocks/ - Mock 实现（包含 MockBrowserAdapter）
 
 ### 15.6 文档
 - [ ] README.md - 新增 Semantic Actions 章节

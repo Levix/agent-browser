@@ -1,0 +1,89 @@
+schema_version: 1
+namespace: invalid
+version: 1.0.0
+description: Invalid action definition for testing validation
+
+actions:
+  # Missing required fields
+  incomplete_action:
+    description: Action with missing steps
+    params:
+      name:
+        type: string
+
+  # Invalid step action
+  invalid_step_action:
+    description: Action with invalid step type
+    steps:
+      - action: unknown_action
+        args:
+          foo: bar
+
+  # Circular reference in fallback
+  circular_fallback:
+    description: Action with circular fallback reference
+    steps:
+      - action: click
+        args:
+          selector: '#button'
+        on_error: fallback
+        fallback:
+          - action: run
+            args:
+              action: invalid:circular_fallback
+
+  # Invalid parameter reference
+  invalid_param_ref:
+    description: Action referencing non-existent parameter
+    params:
+      name:
+        type: string
+    steps:
+      - action: fill
+        args:
+          selector: '#input'
+          value: ${params.non_existent}
+
+  # Invalid expression syntax
+  invalid_expression:
+    description: Action with invalid expression
+    params:
+      value:
+        type: number
+    steps:
+      - action: click
+        args:
+          selector: '#button'
+        when: ${params.value} === 'invalid syntax here
+
+  # Missing required parameter
+  missing_required_param:
+    description: Action with required param but no default
+    params:
+      required_field:
+        type: string
+        required: true
+    steps:
+      - action: click
+        args:
+          selector: '#button'
+
+  # Invalid selector reference
+  invalid_selector_ref:
+    description: Action referencing non-existent selector
+    steps:
+      - action: click
+        args:
+          selector: ${selectors.non_existent}
+
+  # Type mismatch
+  type_mismatch:
+    description: Action with type mismatch
+    params:
+      count:
+        type: number
+        default: "not_a_number"
+    steps:
+      - action: wait
+        args:
+          time: ${params.count}

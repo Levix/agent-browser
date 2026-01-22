@@ -1,0 +1,110 @@
+schema_version: 1
+namespace: eresh
+version: 2.1.0
+description: Eresh component library actions with version support
+
+compatibility:
+  min_version: 2.0.0
+  max_version: 2.9.9
+
+selectors:
+  login_button:
+    primary: '[data-eresh-id="login-btn"]'
+    fallback:
+      - 'button.eresh-login'
+      - 'button[aria-label="Login"]'
+  
+  username_field:
+    primary: '[data-eresh-id="username"]'
+    fallback:
+      - 'input[name="username"]'
+      - '#username'
+  
+  submit_form:
+    primary: 'form[data-eresh-form]'
+    fallback:
+      - 'form.eresh-form'
+
+version_overrides:
+  "2.0.0":
+    selectors:
+      login_button: 'button.login-v2'
+  "2.1.0":
+    selectors:
+      login_button: '[data-eresh-id="login-btn-v2"]'
+
+actions:
+  login:
+    description: Login to Eresh application
+    params:
+      username:
+        type: string
+        required: true
+        description: Username or email
+      password:
+        type: string
+        required: true
+        secret: true
+        description: User password
+      remember_me:
+        type: boolean
+        required: false
+        default: false
+        description: Remember login
+    steps:
+      - action: fill
+        args:
+          selector: ${selectors.username_field}
+          value: ${params.username}
+      - action: fill
+        args:
+          selector: '#password'
+          value: ${params.password}
+      - action: click
+        args:
+          selector: '#remember-me'
+        when: ${params.remember_me} == true
+      - action: click
+        args:
+          selector: ${selectors.login_button}
+      - action: wait
+        args:
+          state: networkidle
+    verify: 'window.location.pathname != "/login"'
+    returns: 'true'
+
+  submit_form:
+    description: Submit any Eresh form
+    params:
+      form_data:
+        type: object
+        required: true
+        description: Form field data as key-value pairs
+    steps:
+      - action: run
+        args:
+          action: eresh:fill_form
+          params:
+            data: ${params.form_data}
+      - action: click
+        args:
+          selector: ${selectors.submit_form} button[type="submit"]
+      - action: wait
+        args:
+          state: networkidle
+
+  fill_form:
+    description: Fill form fields with data
+    params:
+      data:
+        type: object
+        required: true
+        description: Field data
+    steps:
+      - action: eval
+        args:
+          expression: |
+            Object.entries(${params.data}).forEach(([key, value]) => {
+              const input = document.querySelector(`[name="${key}"]`);
+              if (input) input.value = value;
+            });

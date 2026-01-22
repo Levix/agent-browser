@@ -1,0 +1,120 @@
+schema_version: 1
+namespace: test
+version: 1.0.0
+description: Test action definitions for unit tests
+
+selectors:
+  submit_button: '[data-test="submit"]'
+  username_input: '#username'
+  password_input: '#password'
+  error_message: '.error-message'
+
+actions:
+  simple_login:
+    description: Simple login action
+    params:
+      username:
+        type: string
+        required: true
+        description: Username
+      password:
+        type: string
+        required: true
+        description: Password
+        secret: true
+    steps:
+      - action: fill
+        args:
+          selector: ${selectors.username_input}
+          value: ${params.username}
+      - action: fill
+        args:
+          selector: ${selectors.password_input}
+          value: ${params.password}
+      - action: click
+        args:
+          selector: ${selectors.submit_button}
+      - action: wait
+        args:
+          state: networkidle
+
+  conditional_action:
+    description: Action with conditional steps
+    params:
+      should_click:
+        type: boolean
+        required: true
+        description: Whether to click the button
+    steps:
+      - action: click
+        args:
+          selector: ${selectors.submit_button}
+        when: ${params.should_click} == true
+
+  action_with_retry:
+    description: Action with retry mechanism
+    params:
+      url:
+        type: string
+        required: true
+        description: URL to open
+    steps:
+      - action: open
+        args:
+          url: ${params.url}
+        retry: 3
+        timeout: 5000
+
+  action_with_fallback:
+    description: Action with fallback steps
+    params:
+      text:
+        type: string
+        required: true
+        description: Text to search
+    steps:
+      - action: click
+        args:
+          selector: '[data-test="primary-button"]'
+        on_error: fallback
+        fallback:
+          - action: click
+            args:
+              selector: '[data-test="secondary-button"]'
+
+  action_with_output:
+    description: Action that captures output
+    steps:
+      - action: eval
+        args:
+          expression: 'document.title'
+        output: page_title
+      - action: eval
+        args:
+          expression: 'window.location.href'
+        output: page_url
+    returns: |
+      {
+        title: ${steps.page_title},
+        url: ${steps.page_url}
+      }
+
+  nested_action:
+    description: Action that calls another action
+    params:
+      username:
+        type: string
+        required: true
+      password:
+        type: string
+        required: true
+    steps:
+      - action: run
+        args:
+          action: test:simple_login
+          params:
+            username: ${params.username}
+            password: ${params.password}
+      - action: wait
+        args:
+          time: 1000

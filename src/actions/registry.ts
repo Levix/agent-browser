@@ -179,6 +179,14 @@ export class Registry {
     return this.load();
   }
 
+  /**
+   * Register a namespace directly (useful for testing)
+   */
+  registerNamespace(namespace: NamespaceDefinition): void {
+    this.mergeNamespace(namespace);
+    this.buildIndex();
+  }
+
   // ==========================================================================
   // Queries
   // ==========================================================================
