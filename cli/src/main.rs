@@ -267,7 +267,7 @@ fn main() {
     // Connect via CDP if --cdp flag is set
     // Accepts either a port number (e.g., "9222") or a full URL (e.g., "ws://..." or "wss://...")
     if let Some(ref cdp_value) = flags.cdp {
-        let launch_cmd = if cdp_value.starts_with("ws://")
+        let mut launch_cmd = if cdp_value.starts_with("ws://")
             || cdp_value.starts_with("wss://")
             || cdp_value.starts_with("http://")
             || cdp_value.starts_with("https://")
