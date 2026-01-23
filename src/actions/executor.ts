@@ -811,8 +811,11 @@ export class ActionExecutor {
     }
 
     // Wait for load state
-    if (args.load || args.state) {
-      const state = String(args.load || args.state) as 'load' | 'domcontentloaded' | 'networkidle';
+    if (args.load || args.state || args.for) {
+      const state = String(args.load || args.state || args.for) as
+        | 'load'
+        | 'domcontentloaded'
+        | 'networkidle';
       const timeout = (step.timeout || context.stepTimeout) as number;
       await this.page.waitForLoadState(state, { timeout });
       return { state };
@@ -938,8 +941,17 @@ export class ActionExecutor {
     }
 
     // Extract parameters for nested call
-    const nestedParams = { ...args };
-    delete nestedParams.action;
+    // If args.params exists, use it as the parameters
+    // Otherwise, use all args except 'action' as parameters
+    const nestedParams = args.params
+      ? typeof args.params === 'object'
+        ? (args.params as Record<string, unknown>)
+        : {}
+      : (() => {
+          const params = { ...args };
+          delete params.action;
+          return params;
+        })();
 
     // Execute nested action recursively using executeNestedAction
     const result = await this.executeNestedAction(action, nestedParams, context);
@@ -1059,6 +1071,34 @@ export class ActionExecutor {
       return {};
     }
 
+    // Handle string returns (single expression)
+    if (typeof action.returns === 'string') {
+      try {
+        // Resolve variables in the string
+        const resolved = resolveObject({ value: action.returns }, context).value as string;
+        // Try to parse as JSON if it looks like an object
+        if (resolved.trim().startsWith('{')) {
+          try {
+            return JSON.parse(resolved);
+          } catch {
+            // If parsing fails, return as a single value
+            return { value: resolved };
+          }
+        }
+        // For non-object strings, evaluate as expression
+        const result = evaluateExpression(resolved, context);
+        return typeof result === 'object' && result !== null
+          ? (result as Record<string, unknown>)
+          : { value: result };
+      } catch (err) {
+        if (this.config.debugMode) {
+          console.warn(`[Executor] Failed to evaluate return expression:`, err);
+        }
+        return {};
+      }
+    }
+
+    // Handle object returns (key-value pairs)
     const data: Record<string, unknown> = {};
 
     for (const [key, expression] of Object.entries(action.returns)) {

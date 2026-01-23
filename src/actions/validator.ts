@@ -68,6 +68,7 @@ export const ActionParamSchema = z
 
 /**
  * Base step schema without fallback (to avoid circular reference)
+ * Accepts both snake_case (from YAML) and camelCase (internal)
  */
 const BaseActionStepSchema = z
   .object({
@@ -77,7 +78,9 @@ const BaseActionStepSchema = z
     output: z.string().optional(),
     timeout: z.number().int().positive().optional(),
     retry: z.number().int().nonnegative().optional(),
+    retry_delay: z.number().int().positive().optional(),
     retryDelay: z.number().int().positive().optional(),
+    on_error: OnErrorSchema.optional(),
     onError: OnErrorSchema.optional(),
   })
   .strict();
@@ -99,6 +102,18 @@ export type ActionStepSchemaType = {
 
 export const ActionStepSchema: z.ZodSchema<ActionStepSchemaType> = BaseActionStepSchema.extend({
   fallback: z.lazy(() => z.array(ActionStepSchema)).optional(),
+}).transform((data) => {
+  // Convert snake_case to camelCase
+  const result: any = { ...data };
+  if ('retry_delay' in result && !('retryDelay' in result)) {
+    result.retryDelay = result.retry_delay;
+    delete result.retry_delay;
+  }
+  if ('on_error' in result && !('onError' in result)) {
+    result.onError = result.on_error;
+    delete result.on_error;
+  }
+  return result;
 }) as z.ZodSchema<ActionStepSchemaType>;
 
 // ============================================================================
@@ -131,8 +146,8 @@ export const ActionDefinitionSchema = z
     alias_of: z.string().optional(),
     params: z.record(ActionParamSchema).optional().default({}),
     steps: z.array(ActionStepSchema),
-    returns: z.record(z.string()).optional(),
-    verify: z.array(VerifyConditionSchema).optional(),
+    returns: z.union([z.string(), z.record(z.string())]).optional(),
+    verify: z.union([VerifyConditionSchema, z.array(VerifyConditionSchema)]).optional(),
   })
   .strict();
 
@@ -190,11 +205,9 @@ export const NamespaceFileSchema = z
     description: z.string().default(''),
     compatibility: CompatibilitySchema.optional(),
     selectors: z.record(SelectorDefinitionSchema).optional().default({}),
-    actions: z
-      .record(ActionDefinitionSchema)
-      .refine((actions) => Object.keys(actions).length > 0, {
-        message: 'At least one action must be defined',
-      }),
+    actions: z.record(ActionDefinitionSchema).refine((actions) => Object.keys(actions).length > 0, {
+      message: 'At least one action must be defined',
+    }),
   })
   .strict();
 
@@ -600,7 +613,8 @@ export function performDeepValidation(
 
     // Validate verify conditions
     if (actionDef.verify) {
-      actionDef.verify.forEach((verify, verifyIndex) => {
+      const verifyArray = Array.isArray(actionDef.verify) ? actionDef.verify : [actionDef.verify];
+      verifyArray.forEach((verify, verifyIndex) => {
         const verifyPath = [...actionPath, 'verify', String(verifyIndex)];
 
         // Validate condition expression

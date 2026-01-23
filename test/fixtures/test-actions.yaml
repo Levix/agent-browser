@@ -76,7 +76,7 @@ actions:
       - action: click
         args:
           selector: '[data-test="primary-button"]'
-        on_error: fallback
+        onError: fallback
         fallback:
           - action: click
             args:
@@ -93,11 +93,9 @@ actions:
         args:
           expression: 'window.location.href'
         output: page_url
-    returns: |
-      {
-        title: ${steps.page_title},
-        url: ${steps.page_url}
-      }
+    returns:
+      title: ${steps.page_title}
+      url: ${steps.page_url}
 
   nested_action:
     description: Action that calls another action
@@ -105,9 +103,11 @@ actions:
       username:
         type: string
         required: true
+        description: Username
       password:
         type: string
         required: true
+        description: Password
     steps:
       - action: run
         args:

@@ -213,7 +213,9 @@ export class MockBrowserAdapter {
       async waitForLoadState(state?: any, options?: any) {
         await self.simulateDelay('waitForLoadState');
         self.recordCall('page.waitForLoadState', [state, options]);
-        return undefined;
+        // Mock implementation: assume load state is immediately reached
+        // In a real browser, this would wait for the actual state
+        return Promise.resolve();
       },
 
       async waitForTimeout(timeout: number) {

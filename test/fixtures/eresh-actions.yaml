@@ -6,6 +6,13 @@ description: Eresh component library actions with version support
 compatibility:
   min_version: 2.0.0
   max_version: 2.9.9
+  version_overrides:
+    "2.0.0":
+      selectors:
+        login_button: 'button.login-v2'
+    "2.1.0":
+      selectors:
+        login_button: '[data-eresh-id="login-btn-v2"]'
 
 selectors:
   login_button:
@@ -24,14 +31,6 @@ selectors:
     primary: 'form[data-eresh-form]'
     fallback:
       - 'form.eresh-form'
-
-version_overrides:
-  "2.0.0":
-    selectors:
-      login_button: 'button.login-v2'
-  "2.1.0":
-    selectors:
-      login_button: '[data-eresh-id="login-btn-v2"]'
 
 actions:
   login:
@@ -70,8 +69,10 @@ actions:
       - action: wait
         args:
           state: networkidle
-    verify: 'window.location.pathname != "/login"'
-    returns: 'true'
+    verify:
+      condition: 'window.location.pathname != "/login"'
+      message: 'Login successful'
+    returns: ${steps[3].success}
 
   submit_form:
     description: Submit any Eresh form
@@ -104,7 +105,10 @@ actions:
       - action: eval
         args:
           expression: |
-            Object.entries(${params.data}).forEach(([key, value]) => {
-              const input = document.querySelector(`[name="${key}"]`);
+            Object.entries(${params.data}).forEach(function(entry) {
+              const key = entry[0];
+              const value = entry[1];
+              const input = document.querySelector('[name="' + key + '"]');
               if (input) input.value = value;
             });
+
