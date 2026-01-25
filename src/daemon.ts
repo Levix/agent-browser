@@ -255,6 +255,8 @@ export async function startDaemon(options?: { streamPort?: number }): Promise<vo
               headless: process.env.AGENT_BROWSER_HEADED !== '1',
               executablePath: process.env.AGENT_BROWSER_EXECUTABLE_PATH,
               extensions: extensions,
+              profile: process.env.AGENT_BROWSER_PROFILE,
+              storageState: process.env.AGENT_BROWSER_STATE,
               args,
               userAgent: process.env.AGENT_BROWSER_USER_AGENT,
               proxy,

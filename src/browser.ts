@@ -819,6 +819,7 @@ export class BrowserManager {
     const cdpEndpoint = options.cdpUrl ?? (options.cdpPort ? String(options.cdpPort) : undefined);
     const hasExtensions = !!options.extensions?.length;
     const hasProfile = !!options.profile;
+    const hasStorageState = !!options.storageState;
 
     if (hasExtensions && cdpEndpoint) {
       throw new Error('Extensions cannot be used with CDP connection');
@@ -826,6 +827,18 @@ export class BrowserManager {
 
     if (hasProfile && cdpEndpoint) {
       throw new Error('Profile cannot be used with CDP connection');
+    }
+
+    if (hasStorageState && hasProfile) {
+      throw new Error(
+        'Storage state cannot be used with profile (profile is already persistent storage)'
+      );
+    }
+
+    if (hasStorageState && hasExtensions) {
+      throw new Error(
+        'Storage state cannot be used with extensions (extensions require persistent context)'
+      );
     }
 
     if (this.isLaunched()) {
@@ -912,6 +925,7 @@ export class BrowserManager {
         userAgent: options.userAgent,
         ...(options.proxy && { proxy: options.proxy }),
         ignoreHTTPSErrors: options.ignoreHTTPSErrors ?? false,
+        ...(options.storageState && { storageState: options.storageState }),
       });
     }
 
