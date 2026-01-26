@@ -162,6 +162,9 @@ describe('detectVersion', () => {
   });
 
   it('should handle detection errors gracefully', async () => {
+    // Mock console.warn to suppress expected error messages
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
     const page = {
       evaluate: vi.fn(async () => {
         throw new Error('Page error');
@@ -176,6 +179,9 @@ describe('detectVersion', () => {
     const result = await detectVersion(page, config);
     expect(result.version).toBeNull();
     expect(result.method).toBe('none');
+
+    // Restore console.warn
+    consoleWarnSpy.mockRestore();
   });
 });
 
