@@ -52,6 +52,79 @@ agent-browser fill "#email" "test@example.com"
 agent-browser find role button click --name "Submit"
 ```
 
+## Semantic Actions
+
+Define reusable, semantic operations with YAML files for common workflows:
+
+```bash
+# List available actions
+agent-browser action list
+
+# Describe an action
+agent-browser action describe common:login
+
+# Execute an action
+agent-browser action run common:login --param username=test --param password=secret
+
+# Validate a custom action file
+agent-browser action validate ./my-actions.yaml
+
+# Search for actions
+agent-browser action search "login"
+
+# Debug mode (detailed logs)
+agent-browser action debug common:login --param username=test
+
+# Dry-run mode (plan without execution)
+agent-browser action dry-run common:form:submit --param button="Save"
+```
+
+### Example: Common Login Action
+
+```yaml
+namespace: common
+actions:
+  login:
+    description: Universal login operation
+    params:
+      username: { type: string, required: true }
+      password: { type: string, required: true, secret: true }
+    steps:
+      - action: fill
+        selector: ${selectors.username_input}
+        args: { value: ${params.username} }
+      - action: fill
+        selector: ${selectors.password_input}
+        args: { value: ${params.password} }
+      - action: click
+        selector: ${selectors.login_button}
+      - action: wait
+        args: { for: networkidle }
+```
+
+### Features
+
+- **Namespace organization**: Group actions by domain (common, eresh, myapp)
+- **Version compatibility**: Automatic version detection and selector adaptation
+- **Fallback chains**: Primary/fallback selectors for resilience
+- **Parameter validation**: Type checking, required fields, defaults
+- **Conditional execution**: Execute steps based on conditions (`when`)
+- **Error handling**: Retry, fallback, and custom error strategies
+- **Variable interpolation**: Access params, env vars, selectors, and step outputs
+- **Extends & overrides**: Inherit and customize action definitions
+
+### Configuration Paths
+
+Actions are loaded from (in priority order):
+1. Built-in: `node_modules/agent-browser/actions/`
+2. User global: `~/.agent-browser/actions/`
+3. Project local: `./.agent-browser/actions/`
+4. Environment: `$AGENT_BROWSER_ACTIONS_PATH`
+
+Later paths override earlier ones for the same namespace.
+
+See [docs/design-v2.md](docs/design-v2.md) for full documentation.
+
 ## Commands
 
 ### Core Commands

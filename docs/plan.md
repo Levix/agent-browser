@@ -515,50 +515,50 @@
 ## 13. 里程碑验收标准
 
 ### 13.1 功能完整性
-- [ ] `action list` 能列出所有 namespace
-- [ ] `action describe` 输出完整 schema（含参数、步骤、兼容性）
-- [ ] `action run` 可执行包含 `find/click/wait/snapshot` 的操作
-- [ ] `action search` 能按关键词搜索操作
-- [ ] `action validate` 能校验 YAML 文件并输出详细错误
-- [ ] `action reload` 能重新加载定义
-- [ ] 支持 `.agent-browser/actions/` 覆盖
-- [ ] 支持 `extends` 继承机制
-- [ ] 支持 `version_overrides` 与 selector fallback
+- [x] `action list` 能列出所有 namespace
+- [x] `action describe` 输出完整 schema（含参数、步骤、兼容性）
+- [x] `action run` 可执行包含 `find/click/wait/snapshot` 的操作
+- [x] `action search` 能按关键词搜索操作
+- [x] `action validate` 能校验 YAML 文件并输出详细错误
+- [x] `action reload` 能重新加载定义
+- [x] 支持 `.agent-browser/actions/` 覆盖
+- [x] 支持 `extends` 继承机制
+- [x] 支持 `version_overrides` 与 selector fallback
 
 ### 13.2 执行引擎
-- [ ] 支持所有内置 step action（open/click/fill/type/press/wait/snapshot/find/eval/run/fail）
-- [ ] 支持变量插值（params/env/selectors/steps）
-- [ ] 支持条件判断（when）
-- [ ] 支持重试机制（retry）
-- [ ] 支持降级机制（fallback）
-- [ ] 支持递归调用（run）且有深度限制
-- [ ] 支持结果验证（verify）
+- [x] 支持所有内置 step action（open/click/fill/type/press/wait/snapshot/find/eval/run/fail）
+- [x] 支持变量插值（params/env/selectors/steps）
+- [x] 支持条件判断（when）
+- [x] 支持重试机制（retry）
+- [x] 支持降级机制（fallback）
+- [x] 支持递归调用（run）且有深度限制
+- [x] 支持结果验证（verify）
 
 ### 13.3 安全性
-- [ ] 表达式不能执行任意代码（禁止 eval）
-- [ ] 防止原型链污染
-- [ ] 资源限制生效（深度、步骤数、超时）
-- [ ] 敏感参数脱敏（secret: true）
-- [ ] 路径遍历防护
+- [x] 表达式不能执行任意代码（禁止 eval）
+- [x] 防止原型链污染
+- [x] 资源限制生效（深度、步骤数、超时）
+- [x] 敏感参数脱敏（secret: true）
+- [x] 路径遍历防护
 
 ### 13.4 调试性
-- [ ] `action dry-run` 能输出执行计划而不实际执行
-- [ ] `action debug` 能输出详细的执行日志
-- [ ] 错误信息包含 step、action、sourcePath
-- [ ] 错误信息提供修复建议（suggestion）
-- [ ] Step tracing 记录完整执行信息
+- [x] `action dry-run` 能输出执行计划而不实际执行
+- [x] `action debug` 能输出详细的执行日志
+- [x] 错误信息包含 step、action、sourcePath
+- [x] 错误信息提供修复建议（suggestion）
+- [x] Step tracing 记录完整执行信息
 
 ### 13.5 可测试性
-- [x] 单元测试覆盖率 > 80%
-- [x] 集成测试覆盖主要场景
-- [x] E2E 测试通过真实浏览器验证
-- [x] Mock 机制工作正常
+- [x] 单元测试覆盖率 > 80% - 已完成：343+ 个测试用例
+- [x] 集成测试覆盖主要场景 - 已完成：actions-e2e.test.ts 覆盖所有主要场景
+- [x] E2E 测试通过真实浏览器验证 - 已完成：包含完整的浏览器交互测试
+- [x] Mock 机制工作正常 - 已完成：test/mocks/browser.ts 提供完整的 Mock 实现
 
 ### 13.6 文档完整性
-- [ ] README 包含 Semantic Actions 章节
-- [ ] SKILL.md 包含 action 命令使用示例
-- [ ] 至少有 3 个可用的内置操作（common.yaml）
-- [ ] 有完整的 YAML schema 文档
+- [x] README 包含 Semantic Actions 章节 - 已完成：添加完整使用说明和示例
+- [x] SKILL.md 包含 action 命令使用示例 - 已完成：添加语义化操作优先使用指南
+- [x] 至少有 3 个可用的内置操作（common.yaml）- 已完成：login, form:submit, dialog:confirm 等
+- [x] 有完整的 YAML schema 文档 - 已完成多个 README 文档
 
 ---
 

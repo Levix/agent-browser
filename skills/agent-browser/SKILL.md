@@ -16,6 +16,49 @@ agent-browser fill @e2 "text"   # Fill input by ref
 agent-browser close             # Close browser
 ```
 
+## Semantic Actions (Preferred Method)
+
+For common operations like login, form submission, or navigation, **prefer using semantic actions** over raw commands:
+
+```bash
+# List available actions
+agent-browser action list
+
+# Describe an action to see parameters and steps
+agent-browser action describe common:login
+
+# Execute semantic actions
+agent-browser action run common:login --param username=user@example.com --param password=secret
+agent-browser action run common:form:submit --param button="Save Changes"
+agent-browser action run common:dialog:confirm
+
+# Search for actions by keyword
+agent-browser action search "login"
+
+# Debug mode for troubleshooting
+agent-browser action debug common:login --param username=test
+
+# Dry-run to see execution plan
+agent-browser action dry-run common:form:submit
+```
+
+### Why Semantic Actions?
+
+- **Higher-level operations**: One command instead of multiple steps
+- **Self-healing**: Fallback selectors adapt to UI changes
+- **Version-aware**: Automatically detects component versions
+- **Parameterized**: Reusable with different inputs
+- **Error handling**: Built-in retry and fallback logic
+
+### Available Built-in Actions
+
+```bash
+common:login                  # Universal login (username + password)
+common:form:submit            # Submit form with validation
+common:dialog:confirm         # Handle confirmation dialogs
+common:dialog:cancel          # Handle cancel dialogs
+```
+
 ## Core workflow
 
 1. Navigate: `agent-browser open <url>`
