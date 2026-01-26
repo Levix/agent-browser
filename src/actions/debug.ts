@@ -85,7 +85,7 @@ export class DryRunner {
     const context: ExecutionContext = {
       params,
       selectors: {},
-      env: process.env as Record<string, string>,
+      env: {}, // 使用空对象避免 process.env 的问题
       steps: {},
       depth: 0,
       startTime: Date.now(),
@@ -127,9 +127,19 @@ export class DryRunner {
       if (step.when && options.evaluateConditions) {
         try {
           const resolved = options.resolveVariables
-            ? (resolveObject(step.when, context) as string)
+            ? (resolveObject(step.when, {
+                params: context.params,
+                env: context.env,
+                selectors: context.selectors,
+                steps: context.steps,
+              }) as string)
             : step.when;
-          const result = evaluateExpression(resolved, context);
+          const result = evaluateExpression(resolved, {
+            params: context.params,
+            env: context.env,
+            selectors: context.selectors,
+            steps: context.steps,
+          });
           willExecute = Boolean(result);
         } catch {
           // 如果条件评估失败，假定会执行
@@ -141,17 +151,35 @@ export class DryRunner {
       let selector: string | undefined;
       const selectorArg = step.args?.selector as string | undefined;
       if (selectorArg) {
-        selector = options.resolveVariables
-          ? (resolveObject(selectorArg, { ...context, selectors }) as string)
-          : selectorArg;
+        if (options.resolveVariables) {
+          // 创建变量上下文，只包含必要的字段
+          const varContext = {
+            params: context.params,
+            env: context.env,
+            selectors: selectors,
+            steps: context.steps,
+          };
+          selector = resolveObject(selectorArg, varContext) as string;
+        } else {
+          selector = selectorArg;
+        }
       }
 
       // 解析参数
       let args: Record<string, unknown> | undefined;
       if (step.args) {
-        args = options.resolveVariables
-          ? (resolveObject(step.args, context) as Record<string, unknown>)
-          : step.args;
+        if (options.resolveVariables) {
+          // 创建变量上下文，只包含必要的字段
+          const varContext = {
+            params: context.params,
+            env: context.env,
+            selectors: context.selectors,
+            steps: context.steps,
+          };
+          args = resolveObject(step.args, varContext) as Record<string, unknown>;
+        } else {
+          args = step.args;
+        }
       }
 
       // 分析 fallback 步骤

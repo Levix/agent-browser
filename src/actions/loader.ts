@@ -43,6 +43,9 @@ export interface LoaderConfig {
 
   /** Base path for resolving relative paths (defaults to cwd) */
   basePath?: string;
+
+  /** Use default paths (builtin, user, project). Defaults to true. Set to false for testing. */
+  useDefaultPaths?: boolean;
 }
 
 /**
@@ -129,28 +132,32 @@ const BUILTIN_ACTIONS_PATH = path.resolve(__dirname, '../../actions');
 export function getActionPaths(config?: LoaderConfig): string[] {
   const paths: string[] = [];
   const basePath = config?.basePath || process.cwd();
+  const useDefaultPaths = config?.useDefaultPaths !== false; // Default to true
 
-  // 1. Built-in actions (lowest priority)
-  paths.push(BUILTIN_ACTIONS_PATH);
+  // Only add default paths if enabled
+  if (useDefaultPaths) {
+    // 1. Built-in actions (lowest priority)
+    paths.push(BUILTIN_ACTIONS_PATH);
 
-  // 2. User-level actions (~/.agent-browser/actions/)
-  const homeDir = process.env.HOME || process.env.USERPROFILE;
-  if (homeDir) {
-    const userActionsPath = path.join(homeDir, '.agent-browser', 'actions');
-    paths.push(userActionsPath);
-  }
+    // 2. User-level actions (~/.agent-browser/actions/)
+    const homeDir = process.env.HOME || process.env.USERPROFILE;
+    if (homeDir) {
+      const userActionsPath = path.join(homeDir, '.agent-browser', 'actions');
+      paths.push(userActionsPath);
+    }
 
-  // 3. Project-level actions (.agent-browser/actions/)
-  const projectActionsPath = path.join(basePath, '.agent-browser', 'actions');
-  paths.push(projectActionsPath);
+    // 3. Project-level actions (.agent-browser/actions/)
+    const projectActionsPath = path.join(basePath, '.agent-browser', 'actions');
+    paths.push(projectActionsPath);
 
-  // 4. Environment variable paths
-  const envPaths = process.env.AGENT_BROWSER_ACTIONS_PATH;
-  if (envPaths) {
-    const parsed = envPaths
-      .split(path.delimiter)
-      .map((p) => (path.isAbsolute(p) ? p : path.resolve(basePath, p)));
-    paths.push(...parsed);
+    // 4. Environment variable paths
+    const envPaths = process.env.AGENT_BROWSER_ACTIONS_PATH;
+    if (envPaths) {
+      const parsed = envPaths
+        .split(path.delimiter)
+        .map((p) => (path.isAbsolute(p) ? p : path.resolve(basePath, p)));
+      paths.push(...parsed);
+    }
   }
 
   // 5. Custom paths from config (highest priority)

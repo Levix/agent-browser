@@ -358,7 +358,7 @@ describe('loader', () => {
       await createFile(tempDir, 'ns1.yaml', validNamespaceYaml.replace('test', 'ns1'));
       await createFile(tempDir, 'ns2.yaml', validNamespaceYaml.replace('test', 'ns2'));
 
-      const result = await loadActions({ paths: [tempDir] });
+      const result = await loadActions({ paths: [tempDir], useDefaultPaths: false });
 
       expect(result.namespaces.size).toBe(2);
       expect(result.namespaces.has('ns1')).toBe(true);
@@ -370,7 +370,7 @@ describe('loader', () => {
       await createFile(tempDir, 'valid.yaml', validNamespaceYaml);
       await createFile(tempDir, 'invalid.yaml', invalidNamespaceYaml);
 
-      const result = await loadActions({ paths: [tempDir] });
+      const result = await loadActions({ paths: [tempDir], useDefaultPaths: false });
 
       expect(result.namespaces.size).toBe(1);
       expect(result.errors.length).toBeGreaterThan(0);
@@ -385,7 +385,7 @@ describe('loader', () => {
         const v2 = validNamespaceYaml.replace('Test namespace', 'Version 2');
         await createFile(dir2, 'test.yaml', v2);
 
-        const result = await loadActions({ paths: [dir1, dir2] });
+        const result = await loadActions({ paths: [dir1, dir2], useDefaultPaths: false });
 
         expect(result.namespaces.size).toBe(1);
         expect(result.namespaces.get('test')?.description).toBe('Version 2');
@@ -404,7 +404,7 @@ describe('loader', () => {
       );
       await createFile(tempDir, 'test.yaml', deprecated);
 
-      const result = await loadActions({ paths: [tempDir] });
+      const result = await loadActions({ paths: [tempDir], useDefaultPaths: false });
 
       expect(result.warnings.some((w) => w.type === 'deprecated_action')).toBe(true);
     });
@@ -413,14 +413,14 @@ describe('loader', () => {
       await createFile(tempDir, '_config.yaml', configYaml);
       await createFile(tempDir, 'test.yaml', validNamespaceYaml);
 
-      const result = await loadActions({ paths: [tempDir] });
+      const result = await loadActions({ paths: [tempDir], useDefaultPaths: false });
 
       expect(result.namespaces.size).toBe(1);
       expect(result.namespaces.has('_config')).toBe(false);
     });
 
     it('should handle empty directories', async () => {
-      const result = await loadActions({ paths: [tempDir] });
+      const result = await loadActions({ paths: [tempDir], useDefaultPaths: false });
 
       expect(result.namespaces.size).toBe(0);
       expect(result.errors).toHaveLength(0);

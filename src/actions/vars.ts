@@ -148,7 +148,7 @@ export function interpolateString(str: string, context: VariableContext): Interp
   // Pattern to match ${...} expressions
   const pattern = /\$\{([^}]+)\}/g;
 
-  let result = str;
+  let result = '';
   let lastIndex = 0;
   let match: RegExpExecArray | null;
 
@@ -199,17 +199,13 @@ export function interpolateString(str: string, context: VariableContext): Interp
       replacement = String(value);
     }
 
-    // Replace the ${...} with the actual value
-    result =
-      result.substring(0, match.index + (match.index - lastIndex)) +
-      replacement +
-      result.substring(match.index + fullMatch.length + (match.index - lastIndex));
-
-    // Adjust the pattern index to account for the replacement
-    const lengthDiff = replacement.length - fullMatch.length;
-    pattern.lastIndex += lengthDiff;
-    lastIndex = match.index;
+    // Append the part before the match and the replacement
+    result += str.substring(lastIndex, match.index) + replacement;
+    lastIndex = match.index + fullMatch.length;
   }
+
+  // Append any remaining part of the string
+  result += str.substring(lastIndex);
 
   return {
     success: true,

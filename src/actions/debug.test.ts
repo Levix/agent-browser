@@ -24,7 +24,7 @@ describe('debug', () => {
         {
           action: 'wait',
           when: '${params.wait}',
-          args: { for: 'networkidle' },
+          args: { waitFor: 'networkidle' },
         },
       ],
       sourcePath: '/test/action.yaml',
@@ -48,7 +48,7 @@ describe('debug', () => {
       );
 
       // args 会被解析
-      expect(result.steps[1].args).toEqual({ for: 'networkidle' });
+      expect(result.steps[1].args).toEqual({ waitFor: 'networkidle' });
     });
 
     it('should evaluate conditions when option enabled', () => {
@@ -263,22 +263,19 @@ describe('debug', () => {
       expect(traces[0].error).toBe('Condition not met');
     });
 
-    it('should calculate duration', () => {
+    it('should calculate duration', async () => {
       const step: ActionStep = { action: 'wait', args: {} };
 
       tracer.stepStart(0, step);
 
-      // Wait a bit
-      const start = Date.now();
-      while (Date.now() - start < 10) {
-        // busy wait
-      }
+      // Wait using Promise to avoid blocking
+      await new Promise((resolve) => setTimeout(resolve, 10));
 
       tracer.stepSuccess(0);
 
       const traces = tracer.getTraces();
       const duration = traces[0].endTime - traces[0].startTime;
-      expect(duration).toBeGreaterThan(0);
+      expect(duration).toBeGreaterThanOrEqual(5); // Allow some margin
     });
 
     it('should generate timeline', () => {
