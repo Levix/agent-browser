@@ -1,0 +1,7 @@
+{
+  "name": "agent-browser-plugin-example",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "private": true
+}
