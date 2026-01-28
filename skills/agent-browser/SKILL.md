@@ -461,6 +461,30 @@ agent-browser eval -b "$(echo -n 'Array.from(document.querySelectorAll("a")).map
 - Nested quotes, arrow functions, template literals, or multiline -> use `eval --stdin <<'EVALEOF'`
 - Programmatic/generated scripts -> use `eval -b` with base64
 
+## Plugins
+
+```bash
+agent-browser plugins list
+agent-browser plugins info example
+
+# Install from a package command (npx/pnpx/yarn dlx/etc.)
+agent-browser plugins add --user pnpx agent-browser-plugin-example
+
+# Install from a local folder
+agent-browser plugins add --local ./my-plugins/agent-browser-plugin-example
+
+# Scaffold a new plugin
+agent-browser plugins init --local example
+
+# Remove a plugin
+agent-browser plugins remove --local example
+
+# Help
+agent-browser help plugins
+```
+
+Plugin packages must be named `agent-browser-plugin-*` or `@scope/agent-browser-plugin-*`.
+
 ## Configuration File
 
 Create `agent-browser.json` in the project root for persistent settings:

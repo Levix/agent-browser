@@ -21,7 +21,7 @@ pub struct Request {
     pub extra: Value,
 }
 
-#[derive(Deserialize, Serialize, Default)]
+#[derive(Deserialize, Serialize, Default, Debug)]
 pub struct Response {
     pub success: bool,
     pub data: Option<Value>,

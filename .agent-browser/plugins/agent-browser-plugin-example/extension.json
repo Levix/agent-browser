@@ -1,0 +1,31 @@
+{
+  "name": "example",
+  "version": "0.1.0",
+  "description": "Example table helpers",
+  "entry": "./dist/index.js",
+  "commands": [
+    {
+      "name": "table.getRow",
+      "description": "Get text content of the nth row in a table",
+      "args": [
+        {
+          "name": "selector",
+          "type": "string",
+          "required": true,
+          "description": "Table root selector"
+        },
+        {
+          "name": "index",
+          "type": "int",
+          "required": false,
+          "default": 0,
+          "description": "Zero-based row index"
+        }
+      ],
+      "handler": {
+        "type": "daemon"
+      }
+    }
+  ],
+  "minCliVersion": "0.8.4"
+}

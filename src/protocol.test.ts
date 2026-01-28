@@ -1428,4 +1428,24 @@ describe('parseCommand', () => {
       expect(result.success).toBe(false);
     });
   });
+
+  describe('extension', () => {
+    it('should parse extension command', () => {
+      const result = parseCommand(
+        cmd({
+          id: '1',
+          action: 'extension',
+          extension: 'example',
+          command: 'table.getRow',
+          args: { selector: '.table', index: 0 },
+        })
+      );
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.command.action).toBe('extension');
+        expect(result.command.extension).toBe('example');
+        expect(result.command.command).toBe('table.getRow');
+      }
+      });
+    });
 });
