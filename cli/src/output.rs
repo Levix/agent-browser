@@ -1500,6 +1500,32 @@ Examples:
 "##
         }
 
+        // === Plugins ===
+        "plugins" => {
+            r##"
+agent-browser plugins - Manage third-party plugins
+
+Usage: agent-browser plugins <add|init|remove|list|info> [args]
+
+Commands:
+  add [--user|--local|--dir <path>] <command...>
+      Install a plugin using a custom command (npx/pnpx supported)
+  init [--user|--local|--dir <path>] <name>
+      Create a plugin scaffold
+  remove [--user|--local|--dir <path>] <name>
+      Remove a plugin from the selected location
+  list
+      List available plugins
+  info <name>
+      Show plugin details
+
+Examples:
+  agent-browser plugins add --user npx @scope/agent-browser-plugin-example
+  agent-browser plugins list
+  agent-browser plugins info example
+"##
+        }
+
         // === Connect ===
         "connect" => {
             r##"
@@ -1627,6 +1653,7 @@ Sessions:
 Setup:
   install                    Install browser binaries
   install --with-deps        Also install system dependencies (Linux)
+  plugins                    Manage third-party plugins
 
 Snapshot Options:
   -i, --interactive          Only interactive elements

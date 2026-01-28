@@ -242,6 +242,50 @@ agent-browser install                 # Download Chromium browser
 agent-browser install --with-deps     # Also install system deps (Linux)
 ```
 
+## Plugins
+
+Extend agent-browser with custom commands packaged as plugins. Plugins are discovered from:
+
+- Project: `.agent-browser/plugins`
+- User config: `~/.config/agent-browser/plugins` (Linux/macOS) or `%APPDATA%\\agent-browser\\plugins` (Windows)
+
+Plugin packages must be named `agent-browser-plugin-*` or `@scope/agent-browser-plugin-*`.
+
+### Manage plugins
+
+```bash
+agent-browser plugins list
+agent-browser plugins info example
+
+# Install from a package command (npx/pnpx/yarn dlx/etc.)
+agent-browser plugins add --user pnpx agent-browser-plugin-example
+
+# Install from a local folder
+agent-browser plugins add --local ./my-plugins/agent-browser-plugin-example
+
+# Scaffold a new plugin
+agent-browser plugins init --local example
+
+# Remove a plugin
+agent-browser plugins remove --local example
+
+# Help
+agent-browser help plugins
+```
+
+### Plugin permissions (optional)
+
+If a plugin declares permissions in its `extension.json`, you can allow only specific permissions:
+
+- Environment variable: `AGENT_BROWSER_PLUGIN_PERMS=permA,permB`
+- Config file: `.agent-browser/plugins.json`
+
+Example config:
+
+```json
+{ "allow": ["permA", "permB"] }
+```
+
 ## Sessions
 
 Run multiple isolated browser instances:

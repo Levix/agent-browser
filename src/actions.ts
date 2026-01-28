@@ -3,6 +3,7 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import type { BrowserManager, ScreencastFrame } from './browser.js';
 import { getAppDir } from './daemon.js';
+import { executeExtensionCommand } from './extension-registry.js';
 import type {
   Command,
   Response,
@@ -33,6 +34,7 @@ import type {
   TabSwitchCommand,
   TabCloseCommand,
   WindowNewCommand,
+  ExtensionRunCommand,
   CookiesSetCommand,
   StorageGetCommand,
   StorageSetCommand,
@@ -455,6 +457,8 @@ export async function executeCommand(command: Command, browser: BrowserManager):
         return await handleRecordingStop(command, browser);
       case 'recording_restart':
         return await handleRecordingRestart(command, browser);
+      case 'extension':
+        return await handleExtension(command, browser);
       default: {
         // TypeScript narrows to never here, but we handle it for safety
         const unknownCommand = command as { id: string; action: string };
@@ -465,6 +469,41 @@ export async function executeCommand(command: Command, browser: BrowserManager):
     const message = error instanceof Error ? error.message : String(error);
     return errorResponse(command.id, message);
   }
+}
+
+async function handleExtension(
+  command: ExtensionRunCommand,
+  browser: BrowserManager
+): Promise<Response> {
+  try {
+    const result = await executeExtensionCommand(
+      command.extension,
+      command.command,
+      command.args ?? {},
+      browser
+    );
+    const data = formatExtensionResult(result);
+    return successResponse(command.id, data);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Extension command failed';
+    return errorResponse(command.id, message);
+  }
+}
+
+function formatExtensionResult(result: unknown): Record<string, unknown> {
+  if (result === null || result === undefined) {
+    return { result: null };
+  }
+  if (typeof result === 'string') {
+    return { text: result };
+  }
+  if (typeof result === 'number' || typeof result === 'boolean') {
+    return { result };
+  }
+  if (typeof result === 'object') {
+    return result as Record<string, unknown>;
+  }
+  return { result: String(result) };
 }
 
 async function handleLaunch(

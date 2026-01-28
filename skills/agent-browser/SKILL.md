@@ -235,6 +235,30 @@ agent-browser --version               # Show version (-V)
 agent-browser <command> --help        # Show detailed help for a command
 ```
 
+### Plugins
+
+```bash
+agent-browser plugins list
+agent-browser plugins info example
+
+# Install from a package command (npx/pnpx/yarn dlx/etc.)
+agent-browser plugins add --user pnpx agent-browser-plugin-example
+
+# Install from a local folder
+agent-browser plugins add --local ./my-plugins/agent-browser-plugin-example
+
+# Scaffold a new plugin
+agent-browser plugins init --local example
+
+# Remove a plugin
+agent-browser plugins remove --local example
+
+# Help
+agent-browser help plugins
+```
+
+Plugin packages must be named `agent-browser-plugin-*` or `@scope/agent-browser-plugin-*`.
+
 ### Proxy support
 
 ```bash

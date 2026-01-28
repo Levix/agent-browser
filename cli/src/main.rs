@@ -4,6 +4,7 @@ mod connection;
 mod flags;
 mod install;
 mod output;
+mod plugins;
 
 use serde_json::json;
 use std::env;
@@ -20,6 +21,10 @@ use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_I
 
 use commands::{gen_id, parse_command, ParseError};
 use connection::{ensure_daemon, get_socket_dir, send_command};
+use plugins::{
+    print_extension_help, print_extension_index, run_plugins, try_execute_extension,
+    ExtensionError, ExtensionRegistry,
+};
 use flags::{clean_args, parse_flags};
 use install::run_install;
 use output::{print_command_help, print_help, print_response, print_version};
@@ -52,6 +57,53 @@ fn parse_proxy(proxy_str: &str) -> serde_json::Value {
         "username": &creds[..colon_pos],
         "password": &creds[colon_pos + 1..]
     })
+}
+
+fn report_extension_error(err: ExtensionError, json_mode: bool) {
+    match err {
+        ExtensionError::InvalidInvocation { message, usage } => {
+            if json_mode {
+                println!(
+                    r#"{{"success":false,"error":"{}","type":"invalid_arguments","usage":"{}"}}"#,
+                    message.replace('\n', " "),
+                    usage
+                );
+            } else {
+                eprintln!("{}", color::red(&message));
+                eprintln!("Usage: {}", usage);
+            }
+        }
+        ExtensionError::InvalidValue { message, usage } => {
+            if json_mode {
+                println!(
+                    r#"{{"success":false,"error":"{}","type":"invalid_value","usage":"{}"}}"#,
+                    message.replace('\n', " "),
+                    usage
+                );
+            } else {
+                eprintln!("{}", color::red(&message));
+                eprintln!("Usage: {}", usage);
+            }
+        }
+        ExtensionError::Io { message } => {
+            if json_mode {
+                println!(r#"{{"success":false,"error":"{}"}}"#, message);
+            } else {
+                eprintln!("{} {}", color::error_indicator(), message);
+            }
+        }
+        ExtensionError::CommandFailed { response } => {
+            if json_mode {
+                println!("{}", serde_json::to_string(&response).unwrap_or_default());
+            } else {
+                eprintln!(
+                    "{} {}",
+                    color::error_indicator(),
+                    response.error.unwrap_or_else(|| "Unknown error".to_string())
+                );
+            }
+        }
+    }
 }
 
 fn run_session(args: &[String], session: &str, json_mode: bool) {
@@ -145,8 +197,14 @@ fn main() {
             if print_command_help(cmd) {
                 return;
             }
+            let registry = ExtensionRegistry::load();
+            if print_extension_help(&registry, cmd, None) {
+                return;
+            }
         }
         print_help();
+        let registry = ExtensionRegistry::load();
+        print_extension_index(&registry);
         return;
     }
 
@@ -160,10 +218,41 @@ fn main() {
         return;
     }
 
+    if clean.get(0).map(|s| s.as_str()) == Some("help") {
+        let registry = ExtensionRegistry::load();
+        if clean.len() == 1 {
+            print_help();
+            print_extension_index(&registry);
+            return;
+        }
+        let target = clean.get(1).map(|s| s.as_str()).unwrap_or("");
+        if print_command_help(target) {
+            return;
+        }
+        let prefix = clean.get(2).map(|s| s.as_str());
+        if print_extension_help(&registry, target, prefix) {
+            return;
+        }
+        if flags.json {
+            println!(
+                r#"{{"success":false,"error":"Unknown command: {}"}}"#,
+                target
+            );
+        } else {
+            eprintln!("{}", color::red(&format!("Unknown command: {}", target)));
+        }
+        exit(1);
+    }
+
     // Handle install separately
     if clean.get(0).map(|s| s.as_str()) == Some("install") {
         let with_deps = args.iter().any(|a| a == "--with-deps" || a == "-d");
         run_install(with_deps);
+        return;
+    }
+
+    if clean.get(0).map(|s| s.as_str()) == Some("plugins") {
+        run_plugins(&clean, flags.json);
         return;
     }
 
@@ -176,22 +265,84 @@ fn main() {
     let cmd = match parse_command(&clean, &flags) {
         Ok(c) => c,
         Err(e) => {
-            if flags.json {
-                let error_type = match &e {
-                    ParseError::UnknownCommand { .. } => "unknown_command",
-                    ParseError::UnknownSubcommand { .. } => "unknown_subcommand",
-                    ParseError::MissingArguments { .. } => "missing_arguments",
-                    ParseError::InvalidValue { .. } => "invalid_value",
-                };
-                println!(
-                    r#"{{"success":false,"error":"{}","type":"{}"}}"#,
-                    e.format().replace('\n', " "),
-                    error_type
-                );
+            if let ParseError::UnknownCommand { .. } = e {
+                let registry = ExtensionRegistry::load();
+                let ext_name = clean.get(0).map(|s| s.as_str()).unwrap_or("");
+                if registry.find(ext_name).is_some() {
+                    let daemon_result = match ensure_daemon(
+                        &flags.session,
+                        flags.headed,
+                        flags.executable_path.as_deref(),
+                        &flags.extensions,
+                        flags.args.as_deref(),
+                        flags.user_agent.as_deref(),
+                        flags.proxy.as_deref(),
+                        flags.proxy_bypass.as_deref(),
+                        flags.ignore_https_errors,
+                        flags.profile.as_deref(),
+                        flags.state.as_deref(),
+                    ) {
+                        Ok(result) => result,
+                        Err(err) => {
+                            if flags.json {
+                                println!(r#"{{"success":false,"error":"{}"}}"#, err);
+                            } else {
+                                eprintln!("{} {}", color::error_indicator(), err);
+                            }
+                            exit(1);
+                        }
+                    };
+
+                    if !daemon_result.already_running {
+                        if flags.json {
+                            println!(r#"{{"success":true,"data":{{"launched":true}}}}"#);
+                        } else {
+                            println!("{} Browser launched", color::success_indicator());
+                        }
+                    }
+
+                    match try_execute_extension(&registry, &clean, &flags, &flags.session) {
+                        Ok(Some(response)) => {
+                            print_response(&response, flags.json, None);
+                            return;
+                        }
+                        Ok(None) => {}
+                        Err(ext_err) => {
+                            report_extension_error(ext_err, flags.json);
+                            exit(1);
+                        }
+                    }
+                }
+
+                if flags.json {
+                    let error_type = "unknown_command";
+                    println!(
+                        r#"{{"success":false,"error":"{}","type":"{}"}}"#,
+                        e.format().replace('\n', " "),
+                        error_type
+                    );
+                } else {
+                    eprintln!("{}", color::red(&e.format()));
+                }
+                exit(1);
             } else {
-                eprintln!("{}", color::red(&e.format()));
+                if flags.json {
+                    let error_type = match &e {
+                        ParseError::UnknownCommand { .. } => "unknown_command",
+                        ParseError::UnknownSubcommand { .. } => "unknown_subcommand",
+                        ParseError::MissingArguments { .. } => "missing_arguments",
+                        ParseError::InvalidValue { .. } => "invalid_value",
+                    };
+                    println!(
+                        r#"{{"success":false,"error":"{}","type":"{}"}}"#,
+                        e.format().replace('\n', " "),
+                        error_type
+                    );
+                } else {
+                    eprintln!("{}", color::red(&e.format()));
+                }
+                exit(1);
             }
-            exit(1);
         }
     };
 

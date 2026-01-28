@@ -21,7 +21,7 @@ pub struct Request {
     pub extra: Value,
 }
 
-#[derive(Deserialize, Serialize, Default)]
+#[derive(Deserialize, Serialize, Default, Debug)]
 pub struct Response {
     pub success: bool,
     pub data: Option<Value>,
@@ -114,11 +114,6 @@ fn get_socket_path(session: &str) -> PathBuf {
 
 fn get_pid_path(session: &str) -> PathBuf {
     get_socket_dir().join(format!("{}.pid", session))
-}
-
-#[cfg(windows)]
-fn get_port_path(session: &str) -> PathBuf {
-    get_socket_dir().join(format!("{}.port", session))
 }
 
 #[cfg(windows)]
