@@ -4,14 +4,12 @@ mod connection;
 mod flags;
 mod install;
 mod output;
+mod validation;
 
 use serde_json::json;
 use std::env;
 use std::fs;
 use std::process::exit;
-
-#[cfg(unix)]
-use libc;
 
 #[cfg(windows)]
 use windows_sys::Win32::Foundation::CloseHandle;
@@ -141,7 +139,7 @@ fn main() {
     let has_version = args.iter().any(|a| a == "--version" || a == "-V");
 
     if has_help {
-        if let Some(cmd) = clean.get(0) {
+        if let Some(cmd) = clean.first() {
             if print_command_help(cmd) {
                 return;
             }
@@ -161,14 +159,14 @@ fn main() {
     }
 
     // Handle install separately
-    if clean.get(0).map(|s| s.as_str()) == Some("install") {
+    if clean.first().map(|s| s.as_str()) == Some("install") {
         let with_deps = args.iter().any(|a| a == "--with-deps" || a == "-d");
         run_install(with_deps);
         return;
     }
 
     // Handle session separately (doesn't need daemon)
-    if clean.get(0).map(|s| s.as_str()) == Some("session") {
+    if clean.first().map(|s| s.as_str()) == Some("session") {
         run_session(&clean, &flags.session, flags.json);
         return;
     }
@@ -182,6 +180,7 @@ fn main() {
                     ParseError::UnknownSubcommand { .. } => "unknown_subcommand",
                     ParseError::MissingArguments { .. } => "missing_arguments",
                     ParseError::InvalidValue { .. } => "invalid_value",
+                    ParseError::InvalidSessionName { .. } => "invalid_session_name",
                 };
                 println!(
                     r#"{{"success":false,"error":"{}","type":"{}"}}"#,
@@ -195,6 +194,22 @@ fn main() {
         }
     };
 
+    // Validate session name before starting daemon
+    if let Some(ref name) = flags.session_name {
+        if !validation::is_valid_session_name(name) {
+            let msg = validation::session_name_error(name);
+            if flags.json {
+                println!(
+                    r#"{{"success":false,"error":"{}","type":"invalid_session_name"}}"#,
+                    msg.replace('"', "\\\"")
+                );
+            } else {
+                eprintln!("{} {}", color::error_indicator(), msg);
+            }
+            exit(1);
+        }
+    }
+
     let daemon_result = match ensure_daemon(
         &flags.session,
         flags.headed,
@@ -205,8 +220,13 @@ fn main() {
         flags.proxy.as_deref(),
         flags.proxy_bypass.as_deref(),
         flags.ignore_https_errors,
+        flags.allow_file_access,
         flags.profile.as_deref(),
         flags.state.as_deref(),
+        flags.provider.as_deref(),
+        flags.device.as_deref(),
+        flags.session_name.as_deref(),
+        flags.download_path.as_deref(),
     ) {
         Ok(result) => result,
         Err(e) => {
@@ -219,23 +239,50 @@ fn main() {
         }
     };
 
-    // Warn if launch-time options were specified but daemon was already running
+    // Warn if launch-time options were explicitly passed via CLI but daemon was already running
+    // Only warn about flags that were passed on the command line, not those set via environment
+    // variables (since the daemon already uses the env vars when it starts).
     if daemon_result.already_running {
-        let has_extensions = !flags.extensions.is_empty();
         let ignored_flags: Vec<&str> = [
-            flags.executable_path.as_ref().map(|_| "--executable-path"),
-            if has_extensions {
+            if flags.cli_executable_path {
+                Some("--executable-path")
+            } else {
+                None
+            },
+            if flags.cli_extensions {
                 Some("--extension")
             } else {
                 None
             },
-            flags.profile.as_ref().map(|_| "--profile"),
-            flags.state.as_ref().map(|_| "--state"),
-            flags.args.as_ref().map(|_| "--args"),
-            flags.user_agent.as_ref().map(|_| "--user-agent"),
-            flags.proxy.as_ref().map(|_| "--proxy"),
-            flags.proxy_bypass.as_ref().map(|_| "--proxy-bypass"),
-            flags.ignore_https_errors.then(|| "--ignore-https-errors"),
+            if flags.cli_profile {
+                Some("--profile")
+            } else {
+                None
+            },
+            if flags.cli_state {
+                Some("--state")
+            } else {
+                None
+            },
+            if flags.cli_args { Some("--args") } else { None },
+            if flags.cli_user_agent {
+                Some("--user-agent")
+            } else {
+                None
+            },
+            if flags.cli_proxy {
+                Some("--proxy")
+            } else {
+                None
+            },
+            if flags.cli_proxy_bypass {
+                Some("--proxy-bypass")
+            } else {
+                None
+            },
+            flags.ignore_https_errors.then_some("--ignore-https-errors"),
+            flags.cli_allow_file_access.then_some("--allow-file-access"),
+            flags.cli_download_path.then_some("--download-path"),
         ]
         .into_iter()
         .flatten()
@@ -248,10 +295,6 @@ fn main() {
                 ignored_flags.join(", ")
             );
         }
-
-        if flags.ignore_https_errors {
-            eprintln!("{} --ignore-https-errors ignored: daemon already running. Use 'agent-browser close' first to restart with this option.", color::warning_indicator());
-        }
     }
 
     // Validate mutually exclusive options
@@ -260,7 +303,27 @@ fn main() {
         if flags.json {
             println!(r#"{{"success":false,"error":"{}"}}"#, msg);
         } else {
-            eprintln!("\x1b[31m✗\x1b[0m {}", msg);
+            eprintln!("{} {}", color::error_indicator(), msg);
+        }
+        exit(1);
+    }
+
+    if flags.auto_connect && flags.cdp.is_some() {
+        let msg = "Cannot use --auto-connect and --cdp together";
+        if flags.json {
+            println!(r#"{{"success":false,"error":"{}"}}"#, msg);
+        } else {
+            eprintln!("{} {}", color::error_indicator(), msg);
+        }
+        exit(1);
+    }
+
+    if flags.auto_connect && flags.provider.is_some() {
+        let msg = "Cannot use --auto-connect and -p/--provider together";
+        if flags.json {
+            println!(r#"{{"success":false,"error":"{}"}}"#, msg);
+        } else {
+            eprintln!("{} {}", color::error_indicator(), msg);
         }
         exit(1);
     }
@@ -270,9 +333,58 @@ fn main() {
         if flags.json {
             println!(r#"{{"success":false,"error":"{}"}}"#, msg);
         } else {
-            eprintln!("\x1b[31m✗\x1b[0m {}", msg);
+            eprintln!("{} {}", color::error_indicator(), msg);
         }
         exit(1);
+    }
+
+    if flags.cdp.is_some() && !flags.extensions.is_empty() {
+        let msg = "Cannot use --extension with --cdp (extensions require local browser)";
+        if flags.json {
+            println!(r#"{{"success":false,"error":"{}"}}"#, msg);
+        } else {
+            eprintln!("{} {}", color::error_indicator(), msg);
+        }
+        exit(1);
+    }
+
+    // Auto-connect to existing browser
+    if flags.auto_connect {
+        let mut launch_cmd = json!({
+            "id": gen_id(),
+            "action": "launch",
+            "autoConnect": true
+        });
+
+        if flags.ignore_https_errors {
+            launch_cmd["ignoreHTTPSErrors"] = json!(true);
+        }
+
+        if let Some(ref cs) = flags.color_scheme {
+            launch_cmd["colorScheme"] = json!(cs);
+        }
+
+        if let Some(ref dp) = flags.download_path {
+            launch_cmd["downloadPath"] = json!(dp);
+        }
+
+        let err = match send_command(launch_cmd, &flags.session) {
+            Ok(resp) if resp.success => None,
+            Ok(resp) => Some(
+                resp.error
+                    .unwrap_or_else(|| "Auto-connect failed".to_string()),
+            ),
+            Err(e) => Some(e.to_string()),
+        };
+
+        if let Some(msg) = err {
+            if flags.json {
+                println!(r#"{{"success":false,"error":"{}"}}"#, msg);
+            } else {
+                eprintln!("{} {}", color::error_indicator(), msg);
+            }
+            exit(1);
+        }
     }
 
     // Connect via CDP if --cdp flag is set
@@ -292,7 +404,7 @@ fn main() {
         } else {
             // It's a port number - validate and use cdpPort field
             let cdp_port: u16 = match cdp_value.parse::<u32>() {
-                Ok(p) if p == 0 => {
+                Ok(0) => {
                     let msg = "Invalid CDP port: port must be greater than 0".to_string();
                     if flags.json {
                         println!(r#"{{"success":false,"error":"{}"}}"#, msg);
@@ -338,6 +450,14 @@ fn main() {
             launch_cmd["ignoreHTTPSErrors"] = json!(true);
         }
 
+        if let Some(ref cs) = flags.color_scheme {
+            launch_cmd["colorScheme"] = json!(cs);
+        }
+
+        if let Some(ref dp) = flags.download_path {
+            launch_cmd["downloadPath"] = json!(dp);
+        }
+
         let err = match send_command(launch_cmd, &flags.session) {
             Ok(resp) if resp.success => None,
             Ok(resp) => Some(
@@ -359,11 +479,15 @@ fn main() {
 
     // Launch with cloud provider if -p flag is set
     if let Some(ref provider) = flags.provider {
-        let launch_cmd = json!({
+        let mut launch_cmd = json!({
             "id": gen_id(),
             "action": "launch",
             "provider": provider
         });
+
+        if let Some(ref cs) = flags.color_scheme {
+            launch_cmd["colorScheme"] = json!(cs);
+        }
 
         let err = match send_command(launch_cmd, &flags.session) {
             Ok(resp) if resp.success => None,
@@ -378,7 +502,7 @@ fn main() {
             if flags.json {
                 println!(r#"{{"success":false,"error":"{}"}}"#, msg);
             } else {
-                eprintln!("\x1b[31m✗\x1b[0m {}", msg);
+                eprintln!("{} {}", color::error_indicator(), msg);
             }
             exit(1);
         }
@@ -386,11 +510,15 @@ fn main() {
 
     // Launch headed browser or configure browser options (without CDP or provider)
     if (flags.headed
+        || flags.executable_path.is_some()
         || flags.profile.is_some()
         || flags.state.is_some()
         || flags.proxy.is_some()
         || flags.args.is_some()
-        || flags.user_agent.is_some())
+        || flags.user_agent.is_some()
+        || flags.allow_file_access
+        || flags.color_scheme.is_some()
+        || flags.download_path.is_some())
         && flags.cdp.is_none()
         && flags.provider.is_none()
     {
@@ -403,6 +531,11 @@ fn main() {
         let cmd_obj = launch_cmd
             .as_object_mut()
             .expect("json! macro guarantees object type");
+
+        // Add executable path if specified
+        if let Some(ref exec_path) = flags.executable_path {
+            cmd_obj.insert("executablePath".to_string(), json!(exec_path));
+        }
 
         // Add profile path if specified
         if let Some(ref profile_path) = flags.profile {
@@ -443,13 +576,45 @@ fn main() {
             launch_cmd["ignoreHTTPSErrors"] = json!(true);
         }
 
-        if let Err(e) = send_command(launch_cmd, &flags.session) {
-            if !flags.json {
-                eprintln!(
-                    "{} Could not configure browser: {}",
-                    color::warning_indicator(),
-                    e
-                );
+        if flags.allow_file_access {
+            launch_cmd["allowFileAccess"] = json!(true);
+        }
+
+        if let Some(ref cs) = flags.color_scheme {
+            launch_cmd["colorScheme"] = json!(cs);
+        }
+
+        if let Some(ref dp) = flags.download_path {
+            launch_cmd["downloadPath"] = json!(dp);
+        }
+
+        match send_command(launch_cmd, &flags.session) {
+            Ok(resp) if !resp.success => {
+                // Launch command failed (e.g., invalid state file, profile error)
+                let error_msg = resp
+                    .error
+                    .unwrap_or_else(|| "Browser launch failed".to_string());
+                if flags.json {
+                    println!(r#"{{"success":false,"error":"{}"}}"#, error_msg);
+                } else {
+                    eprintln!("{} {}", color::error_indicator(), error_msg);
+                }
+                exit(1);
+            }
+            Err(e) => {
+                if flags.json {
+                    println!(r#"{{"success":false,"error":"{}"}}"#, e);
+                } else {
+                    eprintln!(
+                        "{} Could not configure browser: {}",
+                        color::error_indicator(),
+                        e
+                    );
+                }
+                exit(1);
+            }
+            Ok(_) => {
+                // Launch succeeded
             }
         }
     }

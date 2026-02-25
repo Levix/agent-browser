@@ -37,6 +37,8 @@ export interface EnhancedSnapshot {
 export interface SnapshotOptions {
   /** Only include interactive elements (buttons, links, inputs, etc.) */
   interactive?: boolean;
+  /** Include cursor-interactive elements (cursor:pointer, onclick, tabindex) */
+  cursor?: boolean;
   /** Maximum depth of tree to include (0 = root only) */
   maxDepth?: number;
   /** Remove structural elements without meaningful content */
@@ -130,10 +132,135 @@ const STRUCTURAL_ROLES = new Set([
  */
 function buildSelector(role: string, name?: string): string {
   if (name) {
-    const escapedName = name.replace(/"/g, '\\"');
-    return `getByRole('${role}', { name: "${escapedName}", exact: true })`;
+    const escapedName = JSON.stringify(name);
+    return `getByRole('${role}', { name: ${escapedName}, exact: true })`;
   }
   return `getByRole('${role}')`;
+}
+
+/**
+ * Query the page for clickable elements that might not have proper ARIA roles.
+ * This finds elements with cursor: pointer or onclick handlers.
+ */
+async function findCursorInteractiveElements(
+  page: Page,
+  selector?: string
+): Promise<
+  Array<{
+    selector: string;
+    text: string;
+    tagName: string;
+    hasOnClick: boolean;
+    hasCursorPointer: boolean;
+    hasTabIndex: boolean;
+  }>
+> {
+  const rootSelector = selector || 'body';
+
+  // Use a string function body to avoid TypeScript transpilation issues
+  const scriptBody = `(rootSel) => {
+    const results = [];
+
+    // Elements that already have interactive ARIA roles - skip these
+    const interactiveRoles = new Set([
+      'button', 'link', 'textbox', 'checkbox', 'radio', 'combobox', 'listbox',
+      'menuitem', 'menuitemcheckbox', 'menuitemradio', 'option', 'searchbox',
+      'slider', 'spinbutton', 'switch', 'tab', 'treeitem'
+    ]);
+
+    // Tags that are already interactive by default
+    const interactiveTags = new Set([
+      'a', 'button', 'input', 'select', 'textarea', 'details', 'summary'
+    ]);
+
+    const root = document.querySelector(rootSel) || document.body;
+    const allElements = root.querySelectorAll('*');
+
+    // Build a unique selector for an element
+    const buildSelector = (el) => {
+      const testId = el.getAttribute('data-testid');
+      if (testId) return '[data-testid="' + testId + '"]';
+      if (el.id) return '#' + CSS.escape(el.id);
+
+      const path = [];
+      let current = el;
+      while (current && current !== document.body) {
+        let sel = current.tagName.toLowerCase();
+        const classes = Array.from(current.classList).filter(c => c.trim());
+        if (classes.length > 0) sel += '.' + CSS.escape(classes[0]);
+
+        const parent = current.parentElement;
+        if (parent) {
+          const siblings = Array.from(parent.children);
+          const matching = siblings.filter(s => {
+            if (s.tagName !== current.tagName) return false;
+            if (classes.length > 0 && !s.classList.contains(classes[0])) return false;
+            return true;
+          });
+          if (matching.length > 1) {
+            const idx = matching.indexOf(current) + 1;
+            sel += ':nth-of-type(' + idx + ')';
+          }
+        }
+        path.unshift(sel);
+        current = current.parentElement;
+        // Stop once the selector uniquely identifies the element (max 10 levels)
+        if (path.length >= 1) {
+          try {
+            const candidate = path.join(' > ');
+            if (document.querySelectorAll(candidate).length === 1) break;
+          } catch (e) {
+            // If selector is invalid, keep building
+          }
+        }
+        if (path.length >= 10) break;
+      }
+      return path.join(' > ');
+    };
+
+    for (const el of allElements) {
+      const tagName = el.tagName.toLowerCase();
+      if (interactiveTags.has(tagName)) continue;
+
+      const role = el.getAttribute('role');
+      if (role && interactiveRoles.has(role.toLowerCase())) continue;
+
+      const computedStyle = getComputedStyle(el);
+      const hasCursorPointer = computedStyle.cursor === 'pointer';
+      const hasOnClick = el.hasAttribute('onclick') || el.onclick !== null;
+      const tabIndex = el.getAttribute('tabindex');
+      const hasTabIndex = tabIndex !== null && tabIndex !== '-1';
+
+      if (!hasCursorPointer && !hasOnClick && !hasTabIndex) continue;
+
+      // Skip elements that only inherit cursor:pointer from an ancestor
+      // (the ancestor itself will be captured instead)
+      if (hasCursorPointer && !hasOnClick && !hasTabIndex) {
+        const parent = el.parentElement;
+        if (parent && getComputedStyle(parent).cursor === 'pointer') continue;
+      }
+
+      const text = (el.textContent || '').trim().slice(0, 100);
+      if (!text) continue;
+
+      const rect = el.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) continue;
+
+      results.push({
+        selector: buildSelector(el),
+        text,
+        tagName,
+        hasOnClick,
+        hasCursorPointer,
+        hasTabIndex
+      });
+    }
+    return results;
+  }`;
+
+  // eslint-disable-next-line @typescript-eslint/no-implied-eval
+  const fn = new Function('return ' + scriptBody)();
+  return page.evaluate(fn, rootSelector);
 }
 
 /**
@@ -159,6 +286,54 @@ export async function getEnhancedSnapshot(
 
   // Parse and enhance the ARIA tree
   const enhancedTree = processAriaTree(ariaTree, refs, options);
+
+  // When cursor flag is set, also find cursor-interactive elements
+  // that may not have proper ARIA roles
+  if (options.cursor) {
+    const cursorElements = await findCursorInteractiveElements(page, options.selector);
+
+    // Filter out elements whose text is already captured in the snapshot
+    const existingTexts = new Set(Object.values(refs).map((r) => r.name?.toLowerCase()));
+    // Also extract quoted strings from the ARIA tree for broader dedup
+    for (const m of enhancedTree.matchAll(/"([^"]+)"/g)) {
+      existingTexts.add(m[1].toLowerCase());
+    }
+
+    const additionalLines: string[] = [];
+    for (const el of cursorElements) {
+      const elTextLower = el.text.toLowerCase();
+      // Skip if text already captured in the ARIA tree
+      if (existingTexts.has(elTextLower)) continue;
+      existingTexts.add(elTextLower);
+
+      const ref = nextRef();
+      const role = el.hasCursorPointer || el.hasOnClick ? 'clickable' : 'focusable';
+
+      refs[ref] = {
+        selector: el.selector,
+        role: role,
+        name: el.text,
+      };
+
+      // Build description of why it's interactive
+      const hints: string[] = [];
+      if (el.hasCursorPointer) hints.push('cursor:pointer');
+      if (el.hasOnClick) hints.push('onclick');
+      if (el.hasTabIndex) hints.push('tabindex');
+
+      additionalLines.push(`- ${role} "${el.text}" [ref=${ref}] [${hints.join(', ')}]`);
+    }
+
+    if (additionalLines.length > 0) {
+      const separator =
+        enhancedTree === '(no interactive elements)' ? '' : '\n# Cursor-interactive elements:\n';
+      const base = enhancedTree === '(no interactive elements)' ? '' : enhancedTree;
+      return {
+        tree: base + separator + additionalLines.join('\n'),
+        refs,
+      };
+    }
+  }
 
   return { tree: enhancedTree, refs };
 }

@@ -16,9 +16,35 @@ import {
 } from 'playwright-core';
 import path from 'node:path';
 import os from 'node:os';
-import { existsSync, mkdirSync, rmSync } from 'node:fs';
-import type { LaunchCommand } from './types.js';
+import { existsSync, mkdirSync, rmSync, readFileSync, statSync } from 'node:fs';
+import { writeFile, mkdir } from 'node:fs/promises';
+import type { LaunchCommand, TraceEvent } from './types.js';
 import { type RefMap, type EnhancedSnapshot, getEnhancedSnapshot, parseRef } from './snapshot.js';
+import { safeHeaderMerge } from './state-utils.js';
+import {
+  getEncryptionKey,
+  isEncryptedPayload,
+  decryptData,
+  ENCRYPTION_KEY_ENV,
+} from './state-utils.js';
+
+/**
+ * Returns the default Playwright timeout in milliseconds for standard operations.
+ * Can be overridden via the AGENT_BROWSER_DEFAULT_TIMEOUT environment variable.
+ * Default is 25s, which is below the CLI's 30s IPC read timeout to ensure
+ * Playwright errors are returned before the CLI gives up with EAGAIN.
+ * CDP and recording contexts use a shorter fixed timeout (10s) and are not affected.
+ */
+export function getDefaultTimeout(): number {
+  const envValue = process.env.AGENT_BROWSER_DEFAULT_TIMEOUT;
+  if (envValue) {
+    const parsed = parseInt(envValue, 10);
+    if (!isNaN(parsed) && parsed >= 1000) {
+      return parsed;
+    }
+  }
+  return 25000;
+}
 
 // Screencast frame data from CDP
 export interface ScreencastFrame {
@@ -89,6 +115,16 @@ export class BrowserManager {
   private refMap: RefMap = {};
   private lastSnapshot: string = '';
   private scopedHeaderRoutes: Map<string, (route: Route) => Promise<void>> = new Map();
+  private colorScheme: 'light' | 'dark' | 'no-preference' | null = null;
+  private downloadPath: string | null = null;
+
+  /**
+   * Set the persistent color scheme preference.
+   * Applied automatically to all new pages and contexts.
+   */
+  setColorScheme(scheme: 'light' | 'dark' | 'no-preference' | null): void {
+    this.colorScheme = scheme;
+  }
 
   // CDP session for screencast and input injection
   private cdpSession: CDPSession | null = null;
@@ -102,6 +138,25 @@ export class BrowserManager {
   private recordingPage: Page | null = null;
   private recordingOutputPath: string = '';
   private recordingTempDir: string = '';
+  private launchWarnings: string[] = [];
+
+  /**
+   * Get and clear launch warnings (e.g., decryption failures)
+   */
+  getAndClearWarnings(): string[] {
+    const warnings = this.launchWarnings;
+    this.launchWarnings = [];
+    return warnings;
+  }
+
+  // CDP profiling state
+  private static readonly MAX_PROFILE_EVENTS = 5_000_000;
+  private profilingActive: boolean = false;
+  private profileChunks: TraceEvent[] = [];
+  private profileEventsDropped: boolean = false;
+  private profileCompleteResolver: (() => void) | null = null;
+  private profileDataHandler: ((params: { value?: TraceEvent[] }) => void) | null = null;
+  private profileCompleteHandler: (() => void) | null = null;
 
   /**
    * Check if browser is launched
@@ -115,6 +170,7 @@ export class BrowserManager {
    */
   async getSnapshot(options?: {
     interactive?: boolean;
+    cursor?: boolean;
     maxDepth?: number;
     compact?: boolean;
     selector?: string;
@@ -124,6 +180,20 @@ export class BrowserManager {
     this.refMap = snapshot.refs;
     this.lastSnapshot = snapshot.tree;
     return snapshot;
+  }
+
+  /**
+   * Get the last snapshot tree text (empty string if no snapshot has been taken)
+   */
+  getLastSnapshot(): string {
+    return this.lastSnapshot;
+  }
+
+  /**
+   * Update the stored snapshot (used by diff to keep the baseline current)
+   */
+  setLastSnapshot(snapshot: string): void {
+    this.lastSnapshot = snapshot;
   }
 
   /**
@@ -145,6 +215,13 @@ export class BrowserManager {
     if (!refData) return null;
 
     const page = this.getPage();
+
+    // Check if this is a cursor-interactive element (uses CSS selector, not ARIA role)
+    // These have pseudo-roles 'clickable' or 'focusable' and a CSS selector
+    if (refData.role === 'clickable' || refData.role === 'focusable') {
+      // The selector is a CSS selector, use it directly
+      return page.locator(refData.selector);
+    }
 
     // Build locator with exact: true to avoid substring matches
     let locator: Locator;
@@ -180,6 +257,45 @@ export class BrowserManager {
     // Otherwise treat as regular selector
     const page = this.getPage();
     return page.locator(selectorOrRef);
+  }
+
+  /**
+   * Check if the browser has any usable pages
+   */
+  hasPages(): boolean {
+    return this.pages.length > 0;
+  }
+
+  /**
+   * Ensure at least one page exists. If the browser is launched but all pages
+   * were closed (stale session), creates a new page on the existing context.
+   * No-op if pages already exist.
+   */
+  async ensurePage(): Promise<void> {
+    if (this.pages.length > 0) return;
+    if (!this.browser && !this.isPersistentContext) return;
+
+    // Use the last existing context, or create a new one
+    let context: BrowserContext;
+    if (this.contexts.length > 0) {
+      context = this.contexts[this.contexts.length - 1];
+    } else if (this.browser) {
+      context = await this.browser.newContext({
+        ...(this.colorScheme && { colorScheme: this.colorScheme }),
+      });
+      context.setDefaultTimeout(getDefaultTimeout());
+      this.contexts.push(context);
+      this.setupContextTracking(context);
+    } else {
+      return;
+    }
+
+    const page = await context.newPage();
+    if (!this.pages.includes(page)) {
+      this.pages.push(page);
+      this.setupPageTracking(page);
+    }
+    this.activePageIndex = this.pages.length - 1;
   }
 
   /**
@@ -562,10 +678,7 @@ export class BrowserManager {
     const handler = async (route: Route) => {
       const requestHeaders = route.request().headers();
       await route.continue({
-        headers: {
-          ...requestHeaders,
-          ...headers,
-        },
+        headers: safeHeaderMerge(requestHeaders, headers),
       });
     };
 
@@ -619,11 +732,18 @@ export class BrowserManager {
   /**
    * Stop tracing and save
    */
-  async stopTracing(path: string): Promise<void> {
+  async stopTracing(path?: string): Promise<void> {
     const context = this.contexts[0];
     if (context) {
-      await context.tracing.stop({ path });
+      await context.tracing.stop(path ? { path } : undefined);
     }
+  }
+
+  /**
+   * Get the current browser context (first context)
+   */
+  getContext(): BrowserContext | null {
+    return this.contexts[0] ?? null;
   }
 
   /**
@@ -917,7 +1037,7 @@ export class BrowserManager {
       this.kernelSessionId = session.session_id;
       this.kernelApiKey = kernelApiKey;
       this.browser = browser;
-      context.setDefaultTimeout(60000);
+      context.setDefaultTimeout(getDefaultTimeout());
       this.contexts.push(context);
       this.pages.push(page);
       this.activePageIndex = 0;
@@ -990,7 +1110,7 @@ export class BrowserManager {
       this.browserUseSessionId = session.id;
       this.browserUseApiKey = browserUseApiKey;
       this.browser = browser;
-      context.setDefaultTimeout(60000);
+      context.setDefaultTimeout(getDefaultTimeout());
       this.contexts.push(context);
       this.pages.push(page);
       this.activePageIndex = 0;
@@ -1037,13 +1157,32 @@ export class BrowserManager {
 
     if (this.isLaunched()) {
       const needsRelaunch =
-        (!cdpEndpoint && this.cdpEndpoint !== null) ||
-        (!!cdpEndpoint && this.needsCdpReconnect(cdpEndpoint));
+        (!cdpEndpoint && !options.autoConnect && this.cdpEndpoint !== null) ||
+        (!!cdpEndpoint && this.needsCdpReconnect(cdpEndpoint)) ||
+        (!!options.autoConnect && !this.isCdpConnectionAlive());
       if (needsRelaunch) {
         await this.close();
+      } else if (options.autoConnect && this.isCdpConnectionAlive()) {
+        // Already connected via auto-connect, no need to reconnect
+        return;
       } else {
         return;
       }
+    }
+
+    if (options.colorScheme) {
+      this.colorScheme = options.colorScheme;
+    }
+
+    if (options.downloadPath) {
+      this.downloadPath = options.downloadPath;
+    }
+
+    if (this.downloadPath && (cdpEndpoint || options.autoConnect)) {
+      const warning =
+        "--download-path is ignored when connecting via CDP or auto-connect (downloads use the remote browser's configuration)";
+      this.launchWarnings.push(warning);
+      console.error(`[WARN] ${warning}`);
     }
 
     if (cdpEndpoint) {
@@ -1051,9 +1190,20 @@ export class BrowserManager {
       return;
     }
 
+    if (options.autoConnect) {
+      await this.autoConnectViaCDP();
+      return;
+    }
+
     // Cloud browser providers require explicit opt-in via -p flag or AGENT_BROWSER_PROVIDER env var
     // -p flag takes precedence over env var
     const provider = options.provider ?? process.env.AGENT_BROWSER_PROVIDER;
+    if (this.downloadPath && provider) {
+      const warning =
+        "--download-path is ignored when using a cloud provider (downloads use the remote browser's configuration)";
+      this.launchWarnings.push(warning);
+      console.error(`[WARN] ${warning}`);
+    }
     if (provider === 'browserbase') {
       await this.connectToBrowserbase();
       return;
@@ -1069,23 +1219,68 @@ export class BrowserManager {
       return;
     }
 
+    if (this.downloadPath) {
+      const resolved = path.resolve(this.downloadPath);
+      const stat = statSync(resolved, { throwIfNoEntry: false });
+      if (stat && !stat.isDirectory()) {
+        throw new Error(`Download path is not a directory: ${resolved}`);
+      }
+      if (!stat) {
+        try {
+          mkdirSync(resolved, { recursive: true });
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          throw new Error(`Cannot create download directory '${resolved}': ${msg}`);
+        }
+      }
+      this.downloadPath = resolved;
+    }
+
     const browserType = options.browser ?? 'chromium';
     if (hasExtensions && browserType !== 'chromium') {
       throw new Error('Extensions are only supported in Chromium');
     }
 
+    // allowFileAccess is only supported in Chromium
+    if (options.allowFileAccess && browserType !== 'chromium') {
+      throw new Error('allowFileAccess is only supported in Chromium');
+    }
+
     const launcher =
       browserType === 'firefox' ? firefox : browserType === 'webkit' ? webkit : chromium;
-    const viewport = options.viewport ?? { width: 1280, height: 720 };
+
+    // Build base args array with file access flags if enabled
+    // --allow-file-access-from-files: allows file:// URLs to read other file:// URLs via XHR/fetch
+    // --allow-file-access: allows the browser to access local files in general
+    const fileAccessArgs = options.allowFileAccess
+      ? ['--allow-file-access-from-files', '--allow-file-access']
+      : [];
+    const baseArgs = options.args
+      ? [...fileAccessArgs, ...options.args]
+      : fileAccessArgs.length > 0
+        ? fileAccessArgs
+        : undefined;
+
+    // Auto-detect args that control window size and disable viewport emulation
+    // so Playwright doesn't override the browser's own sizing behavior
+    const hasWindowSizeArgs = baseArgs?.some(
+      (arg) => arg === '--start-maximized' || arg.startsWith('--window-size=')
+    );
+    const viewport =
+      options.viewport !== undefined
+        ? options.viewport
+        : hasWindowSizeArgs
+          ? null
+          : { width: 1280, height: 720 };
 
     let context: BrowserContext;
     if (hasExtensions) {
       // Extensions require persistent context in a temp directory
       const extPaths = options.extensions!.join(',');
       const session = process.env.AGENT_BROWSER_SESSION || 'default';
-      // Combine extension args with custom args
+      // Combine extension args with custom args and file access args
       const extArgs = [`--disable-extensions-except=${extPaths}`, `--load-extension=${extPaths}`];
-      const allArgs = options.args ? [...extArgs, ...options.args] : extArgs;
+      const allArgs = baseArgs ? [...extArgs, ...baseArgs] : extArgs;
       context = await launcher.launchPersistentContext(
         path.join(os.tmpdir(), `agent-browser-ext-${session}`),
         {
@@ -1097,6 +1292,8 @@ export class BrowserManager {
           userAgent: options.userAgent,
           ...(options.proxy && { proxy: options.proxy }),
           ignoreHTTPSErrors: options.ignoreHTTPSErrors ?? false,
+          ...(this.colorScheme && { colorScheme: this.colorScheme }),
+          ...(this.downloadPath && { downloadsPath: this.downloadPath }),
         }
       );
       this.isPersistentContext = true;
@@ -1107,8 +1304,14 @@ export class BrowserManager {
       context = await launcher.launchPersistentContext(profilePath, {
         headless: options.headless ?? true,
         executablePath: options.executablePath,
+        args: baseArgs,
         viewport,
         extraHTTPHeaders: options.headers,
+        userAgent: options.userAgent,
+        ...(options.proxy && { proxy: options.proxy }),
+        ignoreHTTPSErrors: options.ignoreHTTPSErrors ?? false,
+        ...(this.colorScheme && { colorScheme: this.colorScheme }),
+        ...(this.downloadPath && { downloadsPath: this.downloadPath }),
       });
       this.isPersistentContext = true;
     } else {
@@ -1116,20 +1319,90 @@ export class BrowserManager {
       this.browser = await launcher.launch({
         headless: options.headless ?? true,
         executablePath: options.executablePath,
-        args: options.args,
+        args: baseArgs,
+        ...(this.downloadPath && { downloadsPath: this.downloadPath }),
       });
       this.cdpEndpoint = null;
+
+      // Check for auto-load state file (supports encrypted files)
+      let storageState:
+        | string
+        | {
+            cookies: Array<{
+              name: string;
+              value: string;
+              domain: string;
+              path: string;
+              expires: number;
+              httpOnly: boolean;
+              secure: boolean;
+              sameSite: 'Strict' | 'Lax' | 'None';
+            }>;
+            origins: Array<{
+              origin: string;
+              localStorage: Array<{ name: string; value: string }>;
+            }>;
+          }
+        | undefined = options.storageState ? options.storageState : undefined;
+
+      if (!storageState && options.autoStateFilePath) {
+        try {
+          const fs = await import('fs');
+          if (fs.existsSync(options.autoStateFilePath)) {
+            const content = fs.readFileSync(options.autoStateFilePath, 'utf8');
+            const parsed = JSON.parse(content);
+
+            if (isEncryptedPayload(parsed)) {
+              const key = getEncryptionKey();
+              if (key) {
+                try {
+                  const decrypted = decryptData(parsed, key);
+                  storageState = JSON.parse(decrypted);
+                  if (process.env.AGENT_BROWSER_DEBUG === '1') {
+                    console.error(
+                      `[DEBUG] Auto-loading session state (decrypted): ${options.autoStateFilePath}`
+                    );
+                  }
+                } catch (decryptErr) {
+                  const warning =
+                    'Failed to decrypt state file - wrong encryption key? Starting fresh.';
+                  this.launchWarnings.push(warning);
+                  console.error(`[WARN] ${warning}`);
+                  if (process.env.AGENT_BROWSER_DEBUG === '1') {
+                    console.error(`[DEBUG] Decryption error:`, decryptErr);
+                  }
+                }
+              } else {
+                const warning = `State file is encrypted but ${ENCRYPTION_KEY_ENV} not set - starting fresh`;
+                this.launchWarnings.push(warning);
+                console.error(`[WARN] ${warning}`);
+              }
+            } else {
+              storageState = options.autoStateFilePath;
+              if (process.env.AGENT_BROWSER_DEBUG === '1') {
+                console.error(`[DEBUG] Auto-loading session state: ${options.autoStateFilePath}`);
+              }
+            }
+          }
+        } catch (err) {
+          if (process.env.AGENT_BROWSER_DEBUG === '1') {
+            console.error(`[DEBUG] Failed to load state file, starting fresh:`, err);
+          }
+        }
+      }
+
       context = await this.browser.newContext({
         viewport,
         extraHTTPHeaders: options.headers,
         userAgent: options.userAgent,
+        storageState,
         ...(options.proxy && { proxy: options.proxy }),
         ignoreHTTPSErrors: options.ignoreHTTPSErrors ?? false,
-        ...(options.storageState && { storageState: options.storageState }),
+        ...(this.colorScheme && { colorScheme: this.colorScheme }),
       });
     }
 
-    context.setDefaultTimeout(60000);
+    context.setDefaultTimeout(getDefaultTimeout());
     this.contexts.push(context);
     this.setupContextTracking(context);
 
@@ -1146,7 +1419,10 @@ export class BrowserManager {
    * Connect to a running browser via CDP (Chrome DevTools Protocol)
    * @param cdpEndpoint Either a port number (as string) or a full WebSocket URL (ws:// or wss://)
    */
-  private async connectViaCDP(cdpEndpoint: string | undefined): Promise<void> {
+  private async connectViaCDP(
+    cdpEndpoint: string | undefined,
+    options?: { timeout?: number }
+  ): Promise<void> {
     if (!cdpEndpoint) {
       throw new Error('CDP endpoint is required for CDP connection');
     }
@@ -1171,14 +1447,16 @@ export class BrowserManager {
       cdpUrl = `http://localhost:${cdpEndpoint}`;
     }
 
-    const browser = await chromium.connectOverCDP(cdpUrl).catch(() => {
-      throw new Error(
-        `Failed to connect via CDP to ${cdpUrl}. ` +
-          (cdpUrl.includes('localhost')
-            ? `Make sure the app is running with --remote-debugging-port=${cdpEndpoint}`
-            : 'Make sure the remote browser is accessible and the URL is correct.')
-      );
-    });
+    const browser = await chromium
+      .connectOverCDP(cdpUrl, { timeout: options?.timeout })
+      .catch(() => {
+        throw new Error(
+          `Failed to connect via CDP to ${cdpUrl}. ` +
+            (cdpUrl.includes('localhost')
+              ? `Make sure the app is running with --remote-debugging-port=${cdpEndpoint}`
+              : 'Make sure the remote browser is accessible and the URL is correct.')
+        );
+      });
 
     // Validate and set up state, cleaning up browser connection if anything fails
     try {
@@ -1218,9 +1496,155 @@ export class BrowserManager {
   }
 
   /**
+   * Get Chrome's default user data directory paths for the current platform.
+   * Returns an array of candidate paths to check (stable, then beta/canary).
+   */
+  private getChromeUserDataDirs(): string[] {
+    const home = os.homedir();
+    const platform = os.platform();
+
+    if (platform === 'darwin') {
+      return [
+        path.join(home, 'Library', 'Application Support', 'Google', 'Chrome'),
+        path.join(home, 'Library', 'Application Support', 'Google', 'Chrome Canary'),
+        path.join(home, 'Library', 'Application Support', 'Chromium'),
+      ];
+    } else if (platform === 'win32') {
+      const localAppData = process.env.LOCALAPPDATA ?? path.join(home, 'AppData', 'Local');
+      return [
+        path.join(localAppData, 'Google', 'Chrome', 'User Data'),
+        path.join(localAppData, 'Google', 'Chrome SxS', 'User Data'),
+        path.join(localAppData, 'Chromium', 'User Data'),
+      ];
+    } else {
+      // Linux
+      return [
+        path.join(home, '.config', 'google-chrome'),
+        path.join(home, '.config', 'google-chrome-unstable'),
+        path.join(home, '.config', 'chromium'),
+      ];
+    }
+  }
+
+  /**
+   * Try to read the DevToolsActivePort file from a Chrome user data directory.
+   * Returns { port, wsPath } if found, or null if not available.
+   */
+  private readDevToolsActivePort(userDataDir: string): { port: number; wsPath: string } | null {
+    const filePath = path.join(userDataDir, 'DevToolsActivePort');
+    try {
+      if (!existsSync(filePath)) return null;
+      const content = readFileSync(filePath, 'utf-8').trim();
+      const lines = content.split('\n');
+      if (lines.length < 2) return null;
+
+      const port = parseInt(lines[0].trim(), 10);
+      const wsPath = lines[1].trim();
+
+      if (isNaN(port) || port <= 0 || port > 65535) return null;
+      if (!wsPath) return null;
+
+      return { port, wsPath };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Try to discover a Chrome CDP endpoint by querying an HTTP debug port.
+   * Returns the WebSocket debugger URL if available.
+   */
+  private async probeDebugPort(port: number): Promise<string | null> {
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/json/version`, {
+        signal: AbortSignal.timeout(2000),
+      });
+      if (!response.ok) return null;
+      const data = (await response.json()) as { webSocketDebuggerUrl?: string };
+      return data.webSocketDebuggerUrl ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Auto-discover and connect to a running Chrome/Chromium instance.
+   *
+   * Discovery strategy:
+   * 1. Read DevToolsActivePort from Chrome's default user data directories
+   * 2. If found, connect using the port and WebSocket path from that file
+   * 3. If not found, probe common debugging ports (9222, 9229)
+   * 4. If a port responds, connect via CDP
+   */
+  private async autoConnectViaCDP(): Promise<void> {
+    // Strategy 1: Check DevToolsActivePort files
+    const userDataDirs = this.getChromeUserDataDirs();
+    for (const dir of userDataDirs) {
+      const activePort = this.readDevToolsActivePort(dir);
+      if (activePort) {
+        // Try HTTP discovery first (works with --remote-debugging-port mode)
+        const wsUrl = await this.probeDebugPort(activePort.port);
+        if (wsUrl) {
+          await this.connectViaCDP(wsUrl);
+          return;
+        }
+        // HTTP probe failed -- Chrome M144+ chrome://inspect remote debugging uses a
+        // WebSocket-only server with no HTTP endpoints. Connect using the WebSocket
+        // path read directly from DevToolsActivePort.
+        const directWsUrl = `ws://127.0.0.1:${activePort.port}${activePort.wsPath}`;
+        try {
+          if (process.env.AGENT_BROWSER_DEBUG === '1') {
+            console.error(
+              `[DEBUG] HTTP probe failed on port ${activePort.port}, ` +
+                `attempting direct WebSocket connection to ${directWsUrl}`
+            );
+          }
+          await this.connectViaCDP(directWsUrl, { timeout: 60_000 });
+          return;
+        } catch {
+          // Direct WebSocket also failed, try next directory
+        }
+      }
+    }
+
+    // Strategy 2: Probe common debugging ports
+    const commonPorts = [9222, 9229];
+    for (const port of commonPorts) {
+      const wsUrl = await this.probeDebugPort(port);
+      if (wsUrl) {
+        await this.connectViaCDP(wsUrl);
+        return;
+      }
+    }
+
+    // Nothing found
+    const platform = os.platform();
+    let hint: string;
+    if (platform === 'darwin') {
+      hint =
+        'Start Chrome with: /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=9222\n' +
+        'Or enable remote debugging in Chrome 144+ at chrome://inspect/#remote-debugging';
+    } else if (platform === 'win32') {
+      hint =
+        'Start Chrome with: chrome.exe --remote-debugging-port=9222\n' +
+        'Or enable remote debugging in Chrome 144+ at chrome://inspect/#remote-debugging';
+    } else {
+      hint =
+        'Start Chrome with: google-chrome --remote-debugging-port=9222\n' +
+        'Or enable remote debugging in Chrome 144+ at chrome://inspect/#remote-debugging';
+    }
+
+    throw new Error(`No running Chrome instance with remote debugging found.\n${hint}`);
+  }
+
+  /**
    * Set up console, error, and close tracking for a page
    */
   private setupPageTracking(page: Page): void {
+    if (this.colorScheme) {
+      page.emulateMedia({ colorScheme: this.colorScheme }).catch(() => {});
+    }
+
     page.on('console', (msg) => {
       this.consoleMessages.push({
         type: msg.type(),
@@ -1249,7 +1673,7 @@ export class BrowserManager {
 
   /**
    * Set up tracking for new pages in a context (for CDP connections and popups/new tabs)
-   * This handles pages created externally (e.g., via target="_blank" links)
+   * This handles pages created externally (e.g., via target="_blank" links, window.open)
    */
   private setupContextTracking(context: BrowserContext): void {
     context.on('page', (page) => {
@@ -1257,6 +1681,17 @@ export class BrowserManager {
       if (!this.pages.includes(page)) {
         this.pages.push(page);
         this.setupPageTracking(page);
+      }
+
+      // Auto-switch to the newly opened tab so subsequent commands target it.
+      // For tabs created via newTab()/newWindow(), this is redundant (they set activePageIndex after),
+      // but for externally opened tabs (window.open, target="_blank"), this ensures the active tab
+      // stays in sync with the browser.
+      const newIndex = this.pages.indexOf(page);
+      if (newIndex !== -1 && newIndex !== this.activePageIndex) {
+        this.activePageIndex = newIndex;
+        // Invalidate CDP session since the active page changed
+        this.invalidateCDPSession().catch(() => {});
       }
     });
   }
@@ -1287,18 +1722,19 @@ export class BrowserManager {
   /**
    * Create a new window (new context)
    */
-  async newWindow(viewport?: {
-    width: number;
-    height: number;
-  }): Promise<{ index: number; total: number }> {
+  async newWindow(viewport?: { width: number; height: number } | null): Promise<{
+    index: number;
+    total: number;
+  }> {
     if (!this.browser) {
       throw new Error('Browser not launched');
     }
 
     const context = await this.browser.newContext({
-      viewport: viewport ?? { width: 1280, height: 720 },
+      viewport: viewport === undefined ? { width: 1280, height: 720 } : viewport,
+      ...(this.colorScheme && { colorScheme: this.colorScheme }),
     });
-    context.setDefaultTimeout(60000);
+    context.setDefaultTimeout(getDefaultTimeout());
     this.contexts.push(context);
     this.setupContextTracking(context);
 
@@ -1495,6 +1931,156 @@ export class BrowserManager {
     this.screencastActive = false;
     this.frameCallback = null;
     this.screencastFrameHandler = null;
+  }
+
+  /**
+   * Check if profiling is currently active
+   */
+  isProfilingActive(): boolean {
+    return this.profilingActive;
+  }
+
+  /**
+   * Start CDP profiling (Tracing)
+   */
+  async startProfiling(options?: { categories?: string[] }): Promise<void> {
+    if (this.profilingActive) {
+      throw new Error('Profiling already active');
+    }
+
+    const cdp = await this.getCDPSession();
+
+    const dataHandler = (params: { value?: TraceEvent[] }) => {
+      if (params.value) {
+        for (const evt of params.value) {
+          if (this.profileChunks.length >= BrowserManager.MAX_PROFILE_EVENTS) {
+            if (!this.profileEventsDropped) {
+              this.profileEventsDropped = true;
+              console.warn(
+                `Profiling: exceeded ${BrowserManager.MAX_PROFILE_EVENTS} events, dropping further data`
+              );
+            }
+            return;
+          }
+          this.profileChunks.push(evt);
+        }
+      }
+    };
+
+    const completeHandler = () => {
+      if (this.profileCompleteResolver) {
+        this.profileCompleteResolver();
+      }
+    };
+
+    cdp.on('Tracing.dataCollected', dataHandler);
+    cdp.on('Tracing.tracingComplete', completeHandler);
+
+    const categories = options?.categories ?? [
+      'devtools.timeline',
+      'disabled-by-default-devtools.timeline',
+      'disabled-by-default-devtools.timeline.frame',
+      'disabled-by-default-devtools.timeline.stack',
+      'v8.execute',
+      'disabled-by-default-v8.cpu_profiler',
+      'disabled-by-default-v8.cpu_profiler.hires',
+      'v8',
+      'disabled-by-default-v8.runtime_stats',
+      'blink',
+      'blink.user_timing',
+      'latencyInfo',
+      'renderer.scheduler',
+      'sequence_manager',
+      'toplevel',
+    ];
+
+    try {
+      await cdp.send('Tracing.start', {
+        traceConfig: {
+          includedCategories: categories,
+          enableSampling: true,
+        },
+        transferMode: 'ReportEvents',
+      });
+    } catch (error) {
+      cdp.off('Tracing.dataCollected', dataHandler);
+      cdp.off('Tracing.tracingComplete', completeHandler);
+      throw error;
+    }
+
+    // Only commit state after the CDP call succeeds
+    this.profilingActive = true;
+    this.profileChunks = [];
+    this.profileEventsDropped = false;
+    this.profileDataHandler = dataHandler;
+    this.profileCompleteHandler = completeHandler;
+  }
+
+  /**
+   * Stop CDP profiling and save to file
+   */
+  async stopProfiling(outputPath: string): Promise<{ path: string; eventCount: number }> {
+    if (!this.profilingActive) {
+      throw new Error('No profiling session active');
+    }
+
+    const cdp = await this.getCDPSession();
+
+    const TRACE_TIMEOUT_MS = 30_000;
+    const completePromise = new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error('Profiling data collection timed out')),
+        TRACE_TIMEOUT_MS
+      );
+      this.profileCompleteResolver = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+    });
+
+    await cdp.send('Tracing.end');
+
+    let chunks: TraceEvent[];
+    try {
+      await completePromise;
+      chunks = this.profileChunks;
+    } finally {
+      if (this.profileDataHandler) {
+        cdp.off('Tracing.dataCollected', this.profileDataHandler);
+      }
+      if (this.profileCompleteHandler) {
+        cdp.off('Tracing.tracingComplete', this.profileCompleteHandler);
+      }
+      this.profilingActive = false;
+      this.profileChunks = [];
+      this.profileEventsDropped = false;
+      this.profileCompleteResolver = null;
+      this.profileDataHandler = null;
+      this.profileCompleteHandler = null;
+    }
+
+    const clockDomain =
+      process.platform === 'linux'
+        ? 'LINUX_CLOCK_MONOTONIC'
+        : process.platform === 'darwin'
+          ? 'MAC_MACH_ABSOLUTE_TIME'
+          : undefined;
+
+    const traceData: Record<string, unknown> = {
+      traceEvents: chunks,
+    };
+    if (clockDomain) {
+      traceData.metadata = { 'clock-domain': clockDomain };
+    }
+
+    const dir = path.dirname(outputPath);
+    await mkdir(dir, { recursive: true });
+
+    await writeFile(outputPath, JSON.stringify(traceData));
+
+    const eventCount = chunks.length;
+
+    return { path: outputPath, eventCount };
   }
 
   /**
@@ -1810,6 +2396,26 @@ export class BrowserManager {
       await this.stopScreencast();
     }
 
+    // Clean up profiling state if active (without saving)
+    if (this.profilingActive) {
+      const cdp = this.cdpSession;
+      if (cdp) {
+        if (this.profileDataHandler) {
+          cdp.off('Tracing.dataCollected', this.profileDataHandler);
+        }
+        if (this.profileCompleteHandler) {
+          cdp.off('Tracing.tracingComplete', this.profileCompleteHandler);
+        }
+        await cdp.send('Tracing.end').catch(() => {});
+      }
+      this.profilingActive = false;
+      this.profileChunks = [];
+      this.profileEventsDropped = false;
+      this.profileCompleteResolver = null;
+      this.profileDataHandler = null;
+      this.profileCompleteHandler = null;
+    }
+
     // Clean up CDP session
     if (this.cdpSession) {
       await this.cdpSession.detach().catch(() => {});
@@ -1866,6 +2472,7 @@ export class BrowserManager {
     this.kernelApiKey = null;
     this.isPersistentContext = false;
     this.activePageIndex = 0;
+    this.colorScheme = null;
     this.refMap = {};
     this.lastSnapshot = '';
     this.frameCallback = null;

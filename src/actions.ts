@@ -1,8 +1,17 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import type { Page, Frame } from 'playwright-core';
 import { mkdirSync } from 'node:fs';
-import path from 'node:path';
 import type { BrowserManager, ScreencastFrame } from './browser.js';
 import { getAppDir } from './daemon.js';
+import {
+  getSessionsDir,
+  readStateFile,
+  isValidSessionName,
+  isEncryptedPayload,
+  listStateFiles,
+  cleanupExpiredStates,
+} from './state-utils.js';
 import type {
   Command,
   Response,
@@ -56,8 +65,15 @@ import type {
   StylesCommand,
   TraceStartCommand,
   TraceStopCommand,
+  ProfilerStartCommand,
+  ProfilerStopCommand,
   HarStopCommand,
   StorageStateSaveCommand,
+  StateListCommand,
+  StateClearCommand,
+  StateShowCommand,
+  StateCleanCommand,
+  StateRenameCommand,
   ConsoleCommand,
   ErrorsCommand,
   KeyboardCommand,
@@ -107,9 +123,16 @@ import type {
   RecordingStartCommand,
   RecordingStopCommand,
   RecordingRestartCommand,
+  DiffSnapshotCommand,
+  DiffScreenshotCommand,
+  DiffUrlCommand,
+  Annotation,
   NavigateData,
   ScreenshotData,
   EvaluateData,
+  DiffSnapshotData,
+  DiffScreenshotData,
+  DiffUrlData,
   ContentData,
   TabListData,
   TabNewData,
@@ -124,6 +147,8 @@ import type {
   StylesData,
 } from './types.js';
 import { successResponse, errorResponse } from './protocol.js';
+import { diffSnapshots, diffScreenshots } from './diff.js';
+import { getEnhancedSnapshot } from './snapshot.js';
 
 // Callback for screencast frames - will be set by the daemon when streaming is active
 let screencastFrameCallback: ((frame: ScreencastFrame) => void) | null = null;
@@ -341,6 +366,10 @@ export async function executeCommand(command: Command, browser: BrowserManager):
         return await handleTraceStart(command, browser);
       case 'trace_stop':
         return await handleTraceStop(command, browser);
+      case 'profiler_start':
+        return await handleProfilerStart(command, browser);
+      case 'profiler_stop':
+        return await handleProfilerStop(command, browser);
       case 'har_start':
         return await handleHarStart(command, browser);
       case 'har_stop':
@@ -349,6 +378,16 @@ export async function executeCommand(command: Command, browser: BrowserManager):
         return await handleStateSave(command, browser);
       case 'state_load':
         return await handleStateLoad(command, browser);
+      case 'state_list':
+        return await handleStateList(command);
+      case 'state_clear':
+        return await handleStateClear(command);
+      case 'state_show':
+        return await handleStateShow(command);
+      case 'state_clean':
+        return await handleStateClean(command);
+      case 'state_rename':
+        return await handleStateRename(command);
       case 'console':
         return await handleConsole(command, browser);
       case 'errors':
@@ -455,6 +494,12 @@ export async function executeCommand(command: Command, browser: BrowserManager):
         return await handleRecordingStop(command, browser);
       case 'recording_restart':
         return await handleRecordingRestart(command, browser);
+      case 'diff_snapshot':
+        return await handleDiffSnapshot(command, browser);
+      case 'diff_screenshot':
+        return await handleDiffScreenshot(command, browser);
+      case 'diff_url':
+        return await handleDiffUrl(command, browser);
       default: {
         // TypeScript narrows to never here, but we handle it for safety
         const unknownCommand = command as { id: string; action: string };
@@ -501,6 +546,32 @@ async function handleClick(command: ClickCommand, browser: BrowserManager): Prom
   const locator = browser.getLocator(command.selector);
 
   try {
+    // If --new-tab flag is set, get the href and open in a new tab
+    if (command.newTab) {
+      const fullUrl = await locator.evaluate((el) => {
+        const href = el.getAttribute('href');
+        // URL and document.baseURI are available in the browser context
+        return href
+          ? new (globalThis as any).URL(href, (globalThis as any).document.baseURI).toString()
+          : '';
+      });
+      if (!fullUrl) {
+        throw new Error(
+          `Element '${command.selector}' does not have an href attribute. --new-tab only works on links.`
+        );
+      }
+
+      await browser.newTab();
+      const newPage = browser.getPage();
+      await newPage.goto(fullUrl);
+
+      return successResponse(command.id, {
+        clicked: true,
+        newTab: true,
+        url: fullUrl,
+      });
+    }
+
     await locator.click({
       button: command.button,
       clickCount: command.clickCount,
@@ -543,6 +614,16 @@ async function handlePress(command: PressCommand, browser: BrowserManager): Prom
   return successResponse(command.id, { pressed: true });
 }
 
+const ANNOTATION_OVERLAY_ID = '__agent_browser_annotations__';
+
+async function removeAnnotationOverlay(page: Page): Promise<void> {
+  await page
+    .evaluate(
+      `(() => { const el = document.getElementById(${JSON.stringify(ANNOTATION_OVERLAY_ID)}); if (el) el.remove(); })()`
+    )
+    .catch(() => {});
+}
+
 async function handleScreenshot(
   command: ScreenshotCommand,
   browser: BrowserManager
@@ -563,6 +644,8 @@ async function handleScreenshot(
     target = browser.getLocator(command.selector);
   }
 
+  let overlayInjected = false;
+
   try {
     let savePath = command.path;
     if (!savePath) {
@@ -575,9 +658,158 @@ async function handleScreenshot(
       savePath = path.join(screenshotDir, filename);
     }
 
+    let annotations: Annotation[] | undefined;
+
+    if (command.annotate) {
+      const { refs } = await browser.getSnapshot({ interactive: true });
+
+      const entries = Object.entries(refs);
+      const results = await Promise.all(
+        entries.map(async ([ref, data]): Promise<Annotation | null> => {
+          try {
+            const locator = browser.getLocatorFromRef(ref);
+            if (!locator) return null;
+            const box = await locator.boundingBox();
+            if (!box || box.width === 0 || box.height === 0) return null;
+            const num = parseInt(ref.replace('e', ''), 10);
+            return {
+              ref,
+              number: num,
+              role: data.role,
+              name: data.name || undefined,
+              box: {
+                x: Math.round(box.x),
+                y: Math.round(box.y),
+                width: Math.round(box.width),
+                height: Math.round(box.height),
+              },
+            };
+          } catch {
+            return null;
+          }
+        })
+      );
+
+      // When a selector is provided the screenshot is cropped to that element,
+      // so filter to annotations that overlap the target and shift coordinates.
+      let targetBox: { x: number; y: number; width: number; height: number } | null = null;
+      if (command.selector) {
+        const raw = await browser.getLocator(command.selector).boundingBox();
+        if (raw) {
+          targetBox = {
+            x: Math.round(raw.x),
+            y: Math.round(raw.y),
+            width: Math.round(raw.width),
+            height: Math.round(raw.height),
+          };
+        }
+      }
+
+      const filtered = results.filter((a): a is Annotation => a !== null);
+
+      // Filter by selector overlap if needed, but keep viewport-relative coords
+      // for overlay positioning. Coordinate shifting happens later for metadata only.
+      let overlayItems: Annotation[];
+      if (targetBox) {
+        const tb = targetBox;
+        overlayItems = filtered
+          .filter((a) => {
+            const ax2 = a.box.x + a.box.width;
+            const ay2 = a.box.y + a.box.height;
+            const bx2 = tb.x + tb.width;
+            const by2 = tb.y + tb.height;
+            return a.box.x < bx2 && ax2 > tb.x && a.box.y < by2 && ay2 > tb.y;
+          })
+          .sort((a, b) => a.number - b.number);
+      } else {
+        overlayItems = filtered.sort((a, b) => a.number - b.number);
+      }
+
+      if (overlayItems.length > 0) {
+        const overlayData = overlayItems.map((a) => ({
+          number: a.number,
+          x: a.box.x,
+          y: a.box.y,
+          width: a.box.width,
+          height: a.box.height,
+        }));
+
+        // Uses position:absolute with document-relative coords so labels render
+        // correctly for both viewport and fullPage screenshots, and when the
+        // screenshot is scoped to a selector element.
+        await page.evaluate(`(() => {
+          var items = ${JSON.stringify(overlayData)};
+          var id = ${JSON.stringify(ANNOTATION_OVERLAY_ID)};
+          var sx = window.scrollX || 0;
+          var sy = window.scrollY || 0;
+          var c = document.createElement('div');
+          c.id = id;
+          c.style.cssText = 'position:absolute;top:0;left:0;width:0;height:0;pointer-events:none;z-index:2147483647;';
+          for (var i = 0; i < items.length; i++) {
+            var it = items[i];
+            var dx = it.x + sx;
+            var dy = it.y + sy;
+            var b = document.createElement('div');
+            b.style.cssText = 'position:absolute;left:' + dx + 'px;top:' + dy + 'px;width:' + it.width + 'px;height:' + it.height + 'px;border:2px solid rgba(255,0,0,0.8);box-sizing:border-box;pointer-events:none;';
+            var l = document.createElement('div');
+            l.textContent = String(it.number);
+            var labelTop = dy < 14 ? '2px' : '-14px';
+            l.style.cssText = 'position:absolute;top:' + labelTop + ';left:-2px;background:rgba(255,0,0,0.9);color:#fff;font:bold 11px/14px monospace;padding:0 4px;border-radius:2px;white-space:nowrap;';
+            b.appendChild(l);
+            c.appendChild(b);
+          }
+          document.documentElement.appendChild(c);
+        })()`);
+        overlayInjected = true;
+      }
+
+      // Build returned annotation metadata with image-relative coordinates.
+      // Selector: shift to target-element-relative.
+      // fullPage: convert to document-relative (matching fullPage image origin).
+      // Default: viewport-relative (unchanged).
+      if (targetBox) {
+        const tb = targetBox;
+        annotations = overlayItems.map((a) => ({
+          ...a,
+          box: {
+            x: a.box.x - tb.x,
+            y: a.box.y - tb.y,
+            width: a.box.width,
+            height: a.box.height,
+          },
+        }));
+      } else if (command.fullPage) {
+        const scroll = (await page.evaluate(
+          `({x: window.scrollX || 0, y: window.scrollY || 0})`
+        )) as { x: number; y: number };
+        annotations = overlayItems.map((a) => ({
+          ...a,
+          box: {
+            x: a.box.x + scroll.x,
+            y: a.box.y + scroll.y,
+            width: a.box.width,
+            height: a.box.height,
+          },
+        }));
+      } else {
+        annotations = overlayItems;
+      }
+    }
+
     await target.screenshot({ ...options, path: savePath });
-    return successResponse(command.id, { path: savePath });
+
+    if (overlayInjected) {
+      await removeAnnotationOverlay(page);
+    }
+
+    return successResponse(command.id, {
+      path: savePath,
+      ...(annotations && annotations.length > 0 ? { annotations } : {}),
+    });
   } catch (error) {
+    if (overlayInjected) {
+      await removeAnnotationOverlay(page);
+    }
     if (command.selector) {
       throw toAIFriendlyError(error, command.selector);
     }
@@ -589,6 +821,7 @@ async function handleSnapshot(
   command: Command & {
     action: 'snapshot';
     interactive?: boolean;
+    cursor?: boolean;
     maxDepth?: number;
     compact?: boolean;
     selector?: string;
@@ -598,6 +831,7 @@ async function handleSnapshot(
   // Use enhanced snapshot with refs and optional filtering
   const { tree, refs } = await browser.getSnapshot({
     interactive: command.interactive,
+    cursor: command.cursor,
     maxDepth: command.maxDepth,
     compact: command.compact,
     selector: command.selector,
@@ -648,41 +882,41 @@ async function handleWait(command: WaitCommand, browser: BrowserManager): Promis
 async function handleScroll(command: ScrollCommand, browser: BrowserManager): Promise<Response> {
   const page = browser.getPage();
 
+  let deltaX = command.x ?? 0;
+  let deltaY = command.y ?? 0;
+  const hasExplicitDelta = command.x !== undefined || command.y !== undefined;
+
+  if (command.direction) {
+    const amount = command.amount ?? 100;
+    switch (command.direction) {
+      case 'up':
+        deltaY = -amount;
+        break;
+      case 'down':
+        deltaY = amount;
+        break;
+      case 'left':
+        deltaX = -amount;
+        break;
+      case 'right':
+        deltaX = amount;
+        break;
+    }
+  }
+
   if (command.selector) {
-    const element = page.locator(command.selector);
+    const element = browser.getLocator(command.selector);
     await element.scrollIntoViewIfNeeded();
 
-    if (command.x !== undefined || command.y !== undefined) {
+    if (hasExplicitDelta || deltaX !== 0 || deltaY !== 0) {
       await element.evaluate(
         (el, { x, y }) => {
-          el.scrollBy(x ?? 0, y ?? 0);
+          el.scrollBy(x, y);
         },
-        { x: command.x, y: command.y }
+        { x: deltaX, y: deltaY }
       );
     }
   } else {
-    // Scroll the page
-    let deltaX = command.x ?? 0;
-    let deltaY = command.y ?? 0;
-
-    if (command.direction) {
-      const amount = command.amount ?? 100;
-      switch (command.direction) {
-        case 'up':
-          deltaY = -amount;
-          break;
-        case 'down':
-          deltaY = amount;
-          break;
-        case 'left':
-          deltaX = -amount;
-          break;
-        case 'right':
-          deltaX = amount;
-          break;
-      }
-    }
-
     await page.evaluate(`window.scrollBy(${deltaX}, ${deltaY})`);
   }
 
@@ -885,7 +1119,7 @@ async function handleGetByRole(
   browser: BrowserManager
 ): Promise<Response> {
   const page = browser.getPage();
-  const locator = page.getByRole(command.role as any, { name: command.name });
+  const locator = page.getByRole(command.role as any, { name: command.name, exact: command.exact });
 
   switch (command.subaction) {
     case 'click':
@@ -925,7 +1159,7 @@ async function handleGetByLabel(
   browser: BrowserManager
 ): Promise<Response> {
   const page = browser.getPage();
-  const locator = page.getByLabel(command.label);
+  const locator = page.getByLabel(command.label, { exact: command.exact });
 
   switch (command.subaction) {
     case 'click':
@@ -945,7 +1179,7 @@ async function handleGetByPlaceholder(
   browser: BrowserManager
 ): Promise<Response> {
   const page = browser.getPage();
-  const locator = page.getByPlaceholder(command.placeholder);
+  const locator = page.getByPlaceholder(command.placeholder, { exact: command.exact });
 
   switch (command.subaction) {
     case 'click':
@@ -1390,7 +1624,35 @@ async function handleTraceStop(
   browser: BrowserManager
 ): Promise<Response> {
   await browser.stopTracing(command.path);
-  return successResponse(command.id, { path: command.path });
+  return successResponse(
+    command.id,
+    command.path ? { path: command.path } : { traceStopped: true }
+  );
+}
+
+async function handleProfilerStart(
+  command: ProfilerStartCommand,
+  browser: BrowserManager
+): Promise<Response> {
+  await browser.startProfiling({ categories: command.categories });
+  return successResponse(command.id, { started: true });
+}
+
+async function handleProfilerStop(
+  command: ProfilerStopCommand,
+  browser: BrowserManager
+): Promise<Response> {
+  let outputPath = command.path;
+  if (!outputPath) {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const random = Math.random().toString(36).substring(2, 8);
+    const filename = `profile-${timestamp}-${random}.json`;
+    const profileDir = path.join(getAppDir(), 'tmp', 'profiles');
+    mkdirSync(profileDir, { recursive: true });
+    outputPath = path.join(profileDir, filename);
+  }
+  const result = await browser.stopProfiling(outputPath);
+  return successResponse(command.id, result);
 }
 
 async function handleHarStart(
@@ -1424,10 +1686,186 @@ async function handleStateLoad(
   command: Command & { action: 'state_load'; path: string },
   browser: BrowserManager
 ): Promise<Response> {
-  // Storage state is loaded at context creation
+  if (browser.isLaunched()) {
+    return errorResponse(
+      command.id,
+      'Cannot load state while browser is running. Close browser first, then relaunch with loaded state.'
+    );
+  }
+
+  if (!fs.existsSync(command.path)) {
+    return errorResponse(command.id, `State file not found: ${command.path}`);
+  }
+
+  await browser.launch({
+    id: command.id,
+    action: 'launch',
+    headless: true,
+    autoStateFilePath: command.path,
+  });
+
   return successResponse(command.id, {
-    note: 'Storage state must be loaded at browser launch. Use --state flag.',
+    loaded: true,
     path: command.path,
+  });
+}
+
+async function handleStateList(command: StateListCommand): Promise<Response> {
+  const sessionsDir = getSessionsDir();
+  const files = listStateFiles();
+
+  if (files.length === 0) {
+    return successResponse(command.id, { files: [], directory: sessionsDir });
+  }
+
+  const stateFiles = files
+    .map((filename) => {
+      const filepath = path.join(sessionsDir, filename);
+      const stats = fs.statSync(filepath);
+
+      let encrypted = false;
+      try {
+        const content = fs.readFileSync(filepath, 'utf-8');
+        const parsed = JSON.parse(content);
+        encrypted = isEncryptedPayload(parsed);
+      } catch {
+        // Ignore parse errors
+      }
+
+      return {
+        filename,
+        path: filepath,
+        size: stats.size,
+        modified: stats.mtime.toISOString(),
+        encrypted,
+      };
+    })
+    .sort((a, b) => new Date(b.modified).getTime() - new Date(a.modified).getTime());
+
+  return successResponse(command.id, { files: stateFiles, directory: sessionsDir });
+}
+
+async function handleStateClear(command: StateClearCommand): Promise<Response> {
+  const sessionsDir = getSessionsDir();
+
+  if (command.sessionName && !isValidSessionName(command.sessionName)) {
+    return errorResponse(
+      command.id,
+      'Invalid session name. Use only letters, numbers, dashes, and underscores.'
+    );
+  }
+
+  const files = listStateFiles();
+  if (files.length === 0) {
+    return successResponse(command.id, { cleared: 0, deleted: [] });
+  }
+
+  const deleted: string[] = [];
+
+  if (command.all) {
+    for (const file of files) {
+      fs.unlinkSync(path.join(sessionsDir, file));
+      deleted.push(file);
+    }
+  } else if (command.sessionName) {
+    for (const file of files) {
+      if (file.startsWith(`${command.sessionName}-`)) {
+        fs.unlinkSync(path.join(sessionsDir, file));
+        deleted.push(file);
+      }
+    }
+  }
+
+  return successResponse(command.id, { cleared: deleted.length, deleted });
+}
+
+async function handleStateShow(command: StateShowCommand): Promise<Response> {
+  const sessionsDir = getSessionsDir();
+
+  const baseName = command.filename.replace(/\.json$/, '');
+  if (!command.filename.endsWith('.json') || !isValidSessionName(baseName)) {
+    return errorResponse(
+      command.id,
+      'Invalid filename. Use only letters, numbers, dashes, and underscores (with .json extension).'
+    );
+  }
+
+  const filepath = path.join(sessionsDir, command.filename);
+
+  if (!fs.existsSync(filepath)) {
+    return errorResponse(command.id, `State file not found: ${command.filename}`);
+  }
+
+  try {
+    const { data: state, wasEncrypted } = readStateFile(filepath);
+    const stats = fs.statSync(filepath);
+
+    const stateObj = state as {
+      cookies?: Array<{ domain: string }>;
+      origins?: unknown[];
+    };
+    const cookies = stateObj.cookies?.length || 0;
+    const origins = stateObj.origins?.length || 0;
+    const domains = [...new Set((stateObj.cookies || []).map((c) => c.domain))];
+
+    return successResponse(command.id, {
+      filename: command.filename,
+      path: filepath,
+      size: stats.size,
+      modified: stats.mtime.toISOString(),
+      encrypted: wasEncrypted,
+      summary: {
+        cookies,
+        origins,
+        domains,
+      },
+      state,
+    });
+  } catch (e) {
+    return errorResponse(command.id, `Failed to parse state file: ${(e as Error).message}`);
+  }
+}
+
+async function handleStateClean(command: StateCleanCommand): Promise<Response> {
+  const deleted = cleanupExpiredStates(command.days);
+  const keptCount = listStateFiles().length;
+
+  return successResponse(command.id, {
+    cleaned: deleted.length,
+    deleted,
+    keptCount,
+    days: command.days,
+  });
+}
+
+async function handleStateRename(command: StateRenameCommand): Promise<Response> {
+  const sessionsDir = getSessionsDir();
+
+  if (!isValidSessionName(command.oldName) || !isValidSessionName(command.newName)) {
+    return errorResponse(
+      command.id,
+      'Invalid name. Use only letters, numbers, dashes, and underscores.'
+    );
+  }
+
+  const oldPath = path.join(sessionsDir, `${command.oldName}.json`);
+  const newPath = path.join(sessionsDir, `${command.newName}.json`);
+
+  if (!fs.existsSync(oldPath)) {
+    return errorResponse(command.id, `State file not found: ${command.oldName}.json`);
+  }
+
+  if (fs.existsSync(newPath)) {
+    return errorResponse(command.id, `Destination already exists: ${command.newName}.json`);
+  }
+
+  fs.renameSync(oldPath, newPath);
+
+  return successResponse(command.id, {
+    renamed: true,
+    oldName: `${command.oldName}.json`,
+    newName: `${command.newName}.json`,
+    path: newPath,
   });
 }
 
@@ -1456,8 +1894,21 @@ async function handleKeyboard(
   browser: BrowserManager
 ): Promise<Response> {
   const page = browser.getPage();
-  await page.keyboard.press(command.keys);
-  return successResponse(command.id, { pressed: command.keys });
+  const sub = command.subaction ?? 'press';
+
+  switch (sub) {
+    case 'type':
+      await page.keyboard.type(command.text ?? '', { delay: command.delay });
+      return successResponse(command.id, { typed: true, text: command.text });
+    case 'press':
+      await page.keyboard.press(command.keys ?? '');
+      return successResponse(command.id, { pressed: command.keys });
+    case 'insertText':
+      await page.keyboard.insertText(command.text ?? '');
+      return successResponse(command.id, { inserted: true, text: command.text });
+    default:
+      return errorResponse(command.id, `Unknown keyboard subaction: ${sub}`);
+  }
 }
 
 async function handleWheel(command: WheelCommand, browser: BrowserManager): Promise<Response> {
@@ -1631,6 +2082,9 @@ async function handleEmulateMedia(
     reducedMotion: command.reducedMotion,
     forcedColors: command.forcedColors,
   });
+  if (command.colorScheme) {
+    browser.setColorScheme(command.colorScheme);
+  }
   return successResponse(command.id, { emulated: true });
 }
 
@@ -1841,8 +2295,7 @@ async function handleScrollIntoView(
   command: ScrollIntoViewCommand,
   browser: BrowserManager
 ): Promise<Response> {
-  const page = browser.getPage();
-  await page.locator(command.selector).scrollIntoViewIfNeeded();
+  await browser.getLocator(command.selector).scrollIntoViewIfNeeded();
   return successResponse(command.id, { scrolled: true });
 }
 
@@ -2040,4 +2493,107 @@ async function handleRecordingRestart(
     previousPath: result.previousPath,
     stopped: result.stopped,
   });
+}
+
+// Diff handlers
+
+async function handleDiffSnapshot(
+  command: DiffSnapshotCommand,
+  browser: BrowserManager
+): Promise<Response> {
+  let before: string;
+
+  if (command.baseline) {
+    try {
+      before = fs.readFileSync(command.baseline, 'utf-8');
+    } catch {
+      return errorResponse(command.id, `Cannot read baseline file: ${command.baseline}`);
+    }
+  } else {
+    before = browser.getLastSnapshot();
+    if (!before) {
+      return errorResponse(
+        command.id,
+        'No previous snapshot in this session. Take a snapshot first, or use --baseline <file>.'
+      );
+    }
+  }
+
+  const page = browser.getPage();
+  const { tree } = await getEnhancedSnapshot(page, {
+    selector: command.selector,
+    compact: command.compact,
+    maxDepth: command.maxDepth,
+  });
+
+  const after = tree || 'Empty page';
+  const result = diffSnapshots(before, after);
+  browser.setLastSnapshot(after);
+  return successResponse(command.id, result);
+}
+
+async function handleDiffScreenshot(
+  command: DiffScreenshotCommand,
+  browser: BrowserManager
+): Promise<Response> {
+  if (!fs.existsSync(command.baseline)) {
+    return errorResponse(command.id, `Baseline file not found: ${command.baseline}`);
+  }
+
+  const page = browser.getPage();
+  let screenshotBuffer: Buffer;
+  if (command.selector) {
+    const locator = browser.getLocatorFromRef(command.selector) || page.locator(command.selector);
+    screenshotBuffer = await locator.screenshot({ type: 'png' });
+  } else {
+    screenshotBuffer = await page.screenshot({ fullPage: command.fullPage, type: 'png' });
+  }
+
+  const baselineBuffer = fs.readFileSync(command.baseline);
+  const ext = path.extname(command.baseline).toLowerCase();
+  const baselineMime = ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'image/png';
+
+  const result = await diffScreenshots(page.context(), baselineBuffer, screenshotBuffer, {
+    threshold: command.threshold,
+    outputPath: command.output,
+    baselineMime,
+  });
+
+  return successResponse(command.id, result);
+}
+
+async function handleDiffUrl(command: DiffUrlCommand, browser: BrowserManager): Promise<Response> {
+  const page = browser.getPage();
+
+  const waitUntil = command.waitUntil ?? 'load';
+  const snapshotOpts = {
+    selector: command.selector,
+    compact: command.compact,
+    maxDepth: command.maxDepth,
+  };
+
+  // Capture state of url1
+  await page.goto(command.url1, { waitUntil });
+  const { tree: tree1 } = await getEnhancedSnapshot(page, snapshotOpts);
+  const snapshot1 = tree1 || 'Empty page';
+  let screenshot1: Buffer | undefined;
+  if (command.screenshot) {
+    screenshot1 = await page.screenshot({ fullPage: command.fullPage, type: 'png' });
+  }
+
+  // Capture state of url2
+  await page.goto(command.url2, { waitUntil });
+  const { tree: tree2 } = await getEnhancedSnapshot(page, snapshotOpts);
+  const snapshot2 = tree2 || 'Empty page';
+
+  const snapshotDiff = diffSnapshots(snapshot1, snapshot2);
+
+  const result: DiffUrlData = { snapshot: snapshotDiff };
+
+  if (command.screenshot && screenshot1) {
+    const screenshot2 = await page.screenshot({ fullPage: command.fullPage, type: 'png' });
+    result.screenshot = await diffScreenshots(page.context(), screenshot1, screenshot2, {});
+  }
+
+  return successResponse(command.id, result);
 }

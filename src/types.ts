@@ -10,12 +10,13 @@ export interface BaseCommand {
 export interface LaunchCommand extends BaseCommand {
   action: 'launch';
   headless?: boolean;
-  viewport?: { width: number; height: number };
+  viewport?: { width: number; height: number } | null;
   browser?: 'chromium' | 'firefox' | 'webkit';
   headers?: Record<string, string>;
   executablePath?: string;
   cdpPort?: number;
   cdpUrl?: string;
+  autoConnect?: boolean; // Auto-discover and connect to running Chrome via DevToolsActivePort
   extensions?: string[];
   profile?: string; // Path to persistent browser profile directory
   storageState?: string; // Path to storage state JSON file
@@ -29,6 +30,11 @@ export interface LaunchCommand extends BaseCommand {
   userAgent?: string;
   provider?: string;
   ignoreHTTPSErrors?: boolean;
+  allowFileAccess?: boolean; // Enable file:// URL access and cross-origin file requests
+  colorScheme?: 'light' | 'dark' | 'no-preference'; // Persistent color scheme override
+  downloadPath?: string; // Directory for browser downloads (Playwright's downloadsPath)
+  // Auto-load state file for session persistence
+  autoStateFilePath?: string;
 }
 
 export interface NavigateCommand extends BaseCommand {
@@ -44,6 +50,7 @@ export interface ClickCommand extends BaseCommand {
   button?: 'left' | 'right' | 'middle';
   clickCount?: number;
   delay?: number;
+  newTab?: boolean;
 }
 
 export interface TypeCommand extends BaseCommand {
@@ -107,6 +114,7 @@ export interface GetByRoleCommand extends BaseCommand {
   action: 'getbyrole';
   role: string;
   name?: string;
+  exact?: boolean;
   subaction: 'click' | 'fill' | 'check' | 'hover';
   value?: string;
 }
@@ -121,6 +129,7 @@ export interface GetByTextCommand extends BaseCommand {
 export interface GetByLabelCommand extends BaseCommand {
   action: 'getbylabel';
   label: string;
+  exact?: boolean;
   subaction: 'click' | 'fill' | 'check';
   value?: string;
 }
@@ -128,6 +137,7 @@ export interface GetByLabelCommand extends BaseCommand {
 export interface GetByPlaceholderCommand extends BaseCommand {
   action: 'getbyplaceholder';
   placeholder: string;
+  exact?: boolean;
   subaction: 'click' | 'fill';
   value?: string;
 }
@@ -521,6 +531,17 @@ export interface InputTouchCommand extends BaseCommand {
   modifiers?: number;
 }
 
+// iOS-specific commands
+export interface SwipeCommand extends BaseCommand {
+  action: 'swipe';
+  direction: 'up' | 'down' | 'left' | 'right';
+  distance?: number;
+}
+
+export interface DeviceListCommand extends BaseCommand {
+  action: 'device_list';
+}
+
 // Video recording (Playwright native - requires launch-time setup)
 export interface VideoStartCommand extends BaseCommand {
   action: 'video_start';
@@ -557,7 +578,34 @@ export interface TraceStartCommand extends BaseCommand {
 
 export interface TraceStopCommand extends BaseCommand {
   action: 'trace_stop';
-  path: string;
+  path?: string;
+}
+
+/**
+ * Chrome Trace Event format. All fields are optional because CDP trace event
+ * shapes vary across categories and event phases -- this type is intentionally
+ * loose to accept any valid trace event without data loss.
+ */
+export interface TraceEvent {
+  cat?: string;
+  name?: string;
+  ph?: string;
+  pid?: number;
+  tid?: number;
+  ts?: number;
+  dur?: number;
+  args?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface ProfilerStartCommand extends BaseCommand {
+  action: 'profiler_start';
+  categories?: string[]; // Optional trace categories (e.g., "devtools.timeline")
+}
+
+export interface ProfilerStopCommand extends BaseCommand {
+  action: 'profiler_stop';
+  path?: string;
 }
 
 // HAR recording
@@ -581,6 +629,33 @@ export interface StorageStateLoadCommand extends BaseCommand {
   path: string;
 }
 
+// State management commands (v2)
+export interface StateListCommand extends BaseCommand {
+  action: 'state_list';
+}
+
+export interface StateClearCommand extends BaseCommand {
+  action: 'state_clear';
+  sessionName?: string;
+  all?: boolean;
+}
+
+export interface StateShowCommand extends BaseCommand {
+  action: 'state_show';
+  filename: string;
+}
+
+export interface StateCleanCommand extends BaseCommand {
+  action: 'state_clean';
+  days: number;
+}
+
+export interface StateRenameCommand extends BaseCommand {
+  action: 'state_rename';
+  oldName: string;
+  newName: string;
+}
+
 // Console logs
 export interface ConsoleCommand extends BaseCommand {
   action: 'console';
@@ -593,10 +668,13 @@ export interface ErrorsCommand extends BaseCommand {
   clear?: boolean;
 }
 
-// Keyboard shortcuts
+// Raw keyboard input (no selector needed)
 export interface KeyboardCommand extends BaseCommand {
   action: 'keyboard';
-  keys: string; // e.g., "Control+a", "Shift+Tab"
+  subaction?: 'type' | 'press' | 'insertText'; // press kept for backward compat
+  keys?: string; // for legacy press path
+  text?: string; // for type/insertText
+  delay?: number; // for type (ms between keystrokes)
 }
 
 // Mouse wheel
@@ -734,6 +812,7 @@ export interface ScreenshotCommand extends BaseCommand {
   selector?: string;
   format?: 'png' | 'jpeg';
   quality?: number;
+  annotate?: boolean;
 }
 
 export interface SnapshotCommand extends BaseCommand {
@@ -804,7 +883,7 @@ export interface TabCloseCommand extends BaseCommand {
 
 export interface WindowNewCommand extends BaseCommand {
   action: 'window_new';
-  viewport?: { width: number; height: number };
+  viewport?: { width: number; height: number } | null;
 }
 
 // Union of all command types
@@ -878,10 +957,17 @@ export type Command =
   | RecordingRestartCommand
   | TraceStartCommand
   | TraceStopCommand
+  | ProfilerStartCommand
+  | ProfilerStopCommand
   | HarStartCommand
   | HarStopCommand
   | StorageStateSaveCommand
   | StorageStateLoadCommand
+  | StateListCommand
+  | StateClearCommand
+  | StateShowCommand
+  | StateCleanCommand
+  | StateRenameCommand
   | ConsoleCommand
   | ErrorsCommand
   | KeyboardCommand
@@ -931,7 +1017,42 @@ export type Command =
   | ScreencastStopCommand
   | InputMouseCommand
   | InputKeyboardCommand
-  | InputTouchCommand;
+  | InputTouchCommand
+  | SwipeCommand
+  | DeviceListCommand
+  | DiffSnapshotCommand
+  | DiffScreenshotCommand
+  | DiffUrlCommand;
+
+// Diff commands
+export interface DiffSnapshotCommand extends BaseCommand {
+  action: 'diff_snapshot';
+  baseline?: string;
+  selector?: string;
+  compact?: boolean;
+  maxDepth?: number;
+}
+
+export interface DiffScreenshotCommand extends BaseCommand {
+  action: 'diff_screenshot';
+  baseline: string;
+  output?: string;
+  threshold?: number;
+  selector?: string;
+  fullPage?: boolean;
+}
+
+export interface DiffUrlCommand extends BaseCommand {
+  action: 'diff_url';
+  url1: string;
+  url2: string;
+  screenshot?: boolean;
+  fullPage?: boolean;
+  waitUntil?: 'load' | 'domcontentloaded' | 'networkidle';
+  selector?: string;
+  compact?: boolean;
+  maxDepth?: number;
+}
 
 // Response types
 export interface SuccessResponse<T = unknown> {
@@ -954,9 +1075,18 @@ export interface NavigateData {
   title: string;
 }
 
+export interface Annotation {
+  ref: string;
+  number: number;
+  role: string;
+  name?: string;
+  box: { x: number; y: number; width: number; height: number };
+}
+
 export interface ScreenshotData {
   path?: string;
   base64?: string;
+  annotations?: Annotation[];
 }
 
 export interface SnapshotData {
@@ -1051,6 +1181,29 @@ export interface ElementStyleInfo {
 
 export interface StylesData {
   elements: ElementStyleInfo[];
+}
+
+// Diff response data
+export interface DiffSnapshotData {
+  diff: string;
+  additions: number;
+  removals: number;
+  unchanged: number;
+  changed: boolean;
+}
+
+export interface DiffScreenshotData {
+  diffPath: string;
+  totalPixels: number;
+  differentPixels: number;
+  mismatchPercentage: number;
+  match: boolean;
+  dimensionMismatch?: boolean;
+}
+
+export interface DiffUrlData {
+  snapshot: DiffSnapshotData;
+  screenshot?: DiffScreenshotData;
 }
 
 // Browser state
