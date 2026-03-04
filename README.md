@@ -230,6 +230,26 @@ agent-browser network route <url> --body <json>  # Mock response
 agent-browser network unroute [url]            # Remove routes
 agent-browser network requests                 # View tracked requests
 agent-browser network requests --filter api    # Filter requests
+agent-browser network response <url>           # Wait for matching response body
+agent-browser network response <url> --timeout 45000  # Custom timeout (ms)
+```
+
+`network response` usage notes:
+
+- Start listening before triggering the request.
+- URL matching uses substring `contains` (not wildcard/regex).
+- If multiple responses match, the first observed response is returned.
+
+```bash
+# Navigate to a page that will actually request /quick-start
+agent-browser --json open https://agent-browser.dev/quick-start
+
+# Listen first, then trigger request
+agent-browser --json network response "/quick-start" --timeout 45000 > quick-start.json 2> quick-start.err &
+agent-browser --json reload
+
+# Debug matching by inspecting request URLs first
+agent-browser network requests --filter quick-start
 ```
 
 ### Tabs & Windows

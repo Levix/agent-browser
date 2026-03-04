@@ -1632,6 +1632,13 @@ Subcommands:
   requests [options]         List captured requests
     --clear                  Clear request log
     --filter <pattern>       Filter by URL pattern
+  response <url> [options]   Wait for matching response and return body
+    --timeout <ms>           Timeout in milliseconds (default: 30000)
+
+Notes:
+  - Start 'network response' before triggering the request.
+  - Matching uses substring contains, not wildcard/regex.
+  - If multiple responses match, the first observed response is returned.
 
 Global Options:
   --json               Output as JSON
@@ -1644,6 +1651,12 @@ Examples:
   agent-browser network requests
   agent-browser network requests --filter "api"
   agent-browser network requests --clear
+  agent-browser open https://agent-browser.dev/quick-start
+  agent-browser network response "/api/user"
+  agent-browser network response "/quick-start" --timeout 45000
+  agent-browser network response "**/graphql" --timeout 45000
+  agent-browser network response "/quick-start" --timeout 45000 &
+  agent-browser reload
 "##
         }
 

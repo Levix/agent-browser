@@ -1974,7 +1974,7 @@ fn parse_set(rest: &[&str], id: &str) -> Result<Value, ParseError> {
 }
 
 fn parse_network(rest: &[&str], id: &str) -> Result<Value, ParseError> {
-    const VALID: &[&str] = &["route", "unroute", "requests"];
+    const VALID: &[&str] = &["route", "unroute", "requests", "response"];
 
     match rest.first().copied() {
         Some("route") => {
@@ -2004,13 +2004,46 @@ fn parse_network(rest: &[&str], id: &str) -> Result<Value, ParseError> {
             }
             Ok(cmd)
         }
+        Some("response") => {
+            let url = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
+                context: "network response".to_string(),
+                usage: "network response <url> [--timeout <ms>]",
+            })?;
+
+            let mut cmd = json!({ "id": id, "action": "responsebody", "url": url });
+
+            if let Some(timeout_idx) = rest.iter().position(|&s| s == "--timeout") {
+                let timeout_str = rest.get(timeout_idx + 1).ok_or_else(|| {
+                    ParseError::MissingArguments {
+                        context: "network response --timeout".to_string(),
+                        usage: "network response <url> [--timeout <ms>]",
+                    }
+                })?;
+
+                let timeout = timeout_str.parse::<u64>().map_err(|_| ParseError::InvalidValue {
+                    message: format!("Invalid timeout value: {}", timeout_str),
+                    usage: "network response <url> [--timeout <ms>]",
+                })?;
+
+                if timeout == 0 {
+                    return Err(ParseError::InvalidValue {
+                        message: "Timeout must be greater than 0".to_string(),
+                        usage: "network response <url> [--timeout <ms>]",
+                    });
+                }
+
+                cmd["timeout"] = json!(timeout);
+            }
+
+            Ok(cmd)
+        }
         Some(sub) => Err(ParseError::UnknownSubcommand {
             subcommand: sub.to_string(),
             valid_options: VALID,
         }),
         None => Err(ParseError::MissingArguments {
             context: "network".to_string(),
-            usage: "network <route|unroute|requests> [args...]",
+            usage: "network <route|unroute|requests|response> [args...]",
         }),
     }
 }
@@ -2348,6 +2381,71 @@ mod tests {
     fn test_storage_invalid_type() {
         let result = parse_command(&args("storage invalid"), &default_flags());
         assert!(result.is_err());
+    }
+
+    // === Network Tests ===
+
+    #[test]
+    fn test_network_response_basic() {
+        let cmd = parse_command(&args("network response /api/user"), &default_flags()).unwrap();
+        assert_eq!(cmd["action"], "responsebody");
+        assert_eq!(cmd["url"], "/api/user");
+        assert!(cmd.get("timeout").is_none());
+    }
+
+    #[test]
+    fn test_network_response_with_timeout() {
+        let cmd = parse_command(
+            &args("network response /api/user --timeout 30000"),
+            &default_flags(),
+        )
+        .unwrap();
+        assert_eq!(cmd["action"], "responsebody");
+        assert_eq!(cmd["url"], "/api/user");
+        assert_eq!(cmd["timeout"], 30000);
+    }
+
+    #[test]
+    fn test_network_response_missing_url() {
+        let result = parse_command(&args("network response"), &default_flags());
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            ParseError::MissingArguments { .. }
+        ));
+    }
+
+    #[test]
+    fn test_network_response_timeout_missing_value() {
+        let result = parse_command(
+            &args("network response /api/user --timeout"),
+            &default_flags(),
+        );
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            ParseError::MissingArguments { .. }
+        ));
+    }
+
+    #[test]
+    fn test_network_response_timeout_invalid_value() {
+        let result = parse_command(
+            &args("network response /api/user --timeout abc"),
+            &default_flags(),
+        );
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), ParseError::InvalidValue { .. }));
+    }
+
+    #[test]
+    fn test_network_response_timeout_zero() {
+        let result = parse_command(
+            &args("network response /api/user --timeout 0"),
+            &default_flags(),
+        );
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), ParseError::InvalidValue { .. }));
     }
 
     // === Navigation Tests ===

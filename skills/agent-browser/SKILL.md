@@ -73,6 +73,7 @@ agent-browser scroll down 500 --selector "div.content"  # Scroll within a specif
 agent-browser get text @e1            # Get element text
 agent-browser get url                 # Get current URL
 agent-browser get title               # Get page title
+agent-browser network response <url>  # Wait for matching response and return body
 
 # Wait
 agent-browser wait @e1                # Wait for element
@@ -98,6 +99,17 @@ agent-browser diff screenshot --baseline before.png  # Visual pixel diff
 agent-browser diff url <url1> <url2>                 # Compare two pages
 agent-browser diff url <url1> <url2> --wait-until networkidle  # Custom wait strategy
 agent-browser diff url <url1> <url2> --selector "#main"  # Scope to element
+```
+
+`network response` tips:
+
+- Start `network response` before the action that triggers the request.
+- Matching is substring contains only (no wildcard/regex semantics).
+- If multiple URLs match, it returns the first matching response seen.
+
+```bash
+agent-browser --json network response "/api/user" --timeout 45000 > resp.json 2> resp.err &
+agent-browser --json reload
 ```
 
 ## Common Patterns

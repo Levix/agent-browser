@@ -615,7 +615,9 @@ fn is_transient_error(error: &str) -> bool {
 fn send_command_once(cmd: &Value, session: &str) -> Result<Response, String> {
     let mut stream = connect(session)?;
 
-    stream.set_read_timeout(Some(Duration::from_secs(30))).ok();
+    stream
+        .set_read_timeout(Some(command_read_timeout(cmd)))
+        .ok();
     stream.set_write_timeout(Some(Duration::from_secs(5))).ok();
 
     let mut json_str = serde_json::to_string(cmd).map_err(|e| e.to_string())?;
@@ -632,6 +634,27 @@ fn send_command_once(cmd: &Value, session: &str) -> Result<Response, String> {
         .map_err(|e| format!("Failed to read: {}", e))?;
 
     serde_json::from_str(&response_line).map_err(|e| format!("Invalid response: {}", e))
+}
+
+/// Compute client-side read timeout for a command.
+///
+/// Commands like `responsebody` and `waitfordownload` can intentionally block for a
+/// user-specified `timeout` value. If the client read timeout is shorter than that,
+/// the CLI reports a transport error (for example os error 10060 on Windows)
+/// before the daemon can return a proper timeout response.
+fn command_read_timeout(cmd: &Value) -> Duration {
+    const DEFAULT_MS: u64 = 30_000;
+    const EXTRA_MS: u64 = 5_000;
+    const MAX_MS: u64 = 300_000;
+
+    let read_ms = cmd
+        .get("timeout")
+        .and_then(|v| v.as_u64())
+        .map(|timeout_ms| timeout_ms.saturating_add(EXTRA_MS))
+        .unwrap_or(DEFAULT_MS)
+        .clamp(DEFAULT_MS, MAX_MS);
+
+    Duration::from_millis(read_ms)
 }
 
 #[cfg(test)]
@@ -792,5 +815,31 @@ mod tests {
         assert!(!is_transient_error("Invalid JSON syntax"));
         assert!(!is_transient_error("Permission denied"));
         assert!(!is_transient_error("Daemon not found"));
+    }
+
+    #[test]
+    fn test_command_read_timeout_default() {
+        let cmd = serde_json::json!({ "id": "r1", "action": "url" });
+        assert_eq!(command_read_timeout(&cmd), Duration::from_secs(30));
+    }
+
+    #[test]
+    fn test_command_read_timeout_uses_command_timeout() {
+        let cmd = serde_json::json!({
+            "id": "r1",
+            "action": "responsebody",
+            "timeout": 45000
+        });
+        assert_eq!(command_read_timeout(&cmd), Duration::from_secs(50));
+    }
+
+    #[test]
+    fn test_command_read_timeout_is_capped() {
+        let cmd = serde_json::json!({
+            "id": "r1",
+            "action": "responsebody",
+            "timeout": 9999999
+        });
+        assert_eq!(command_read_timeout(&cmd), Duration::from_secs(300));
     }
 }
