@@ -10,13 +10,13 @@ use crate::connection::{send_command, Response};
 use crate::flags::Flags;
 
 #[derive(Debug, Deserialize, Clone)]
-pub struct ExtensionManifest {
+pub struct PluginManifest {
     pub name: String,
     pub version: Option<String>,
     pub description: Option<String>,
     pub entry: Option<String>,
     pub permissions: Option<Vec<String>>,
-    pub commands: Vec<ExtensionCommand>,
+    pub commands: Vec<PluginCommand>,
     #[serde(rename = "minCliVersion")]
     pub min_cli_version: Option<String>,
     #[serde(rename = "maxCliVersion")]
@@ -24,15 +24,15 @@ pub struct ExtensionManifest {
 }
 
 #[derive(Debug, Deserialize, Clone)]
-pub struct ExtensionCommand {
+pub struct PluginCommand {
     pub name: String,
     pub description: Option<String>,
-    pub args: Option<Vec<ExtensionArg>>,
-    pub handler: ExtensionHandler,
+    pub args: Option<Vec<PluginArg>>,
+    pub handler: PluginHandler,
 }
 
 #[derive(Debug, Deserialize, Clone)]
-pub struct ExtensionArg {
+pub struct PluginArg {
     pub name: String,
     #[serde(rename = "type")]
     pub arg_type: Option<String>,
@@ -42,46 +42,46 @@ pub struct ExtensionArg {
 }
 
 #[derive(Debug, Deserialize, Clone)]
-pub struct ExtensionHandler {
+pub struct PluginHandler {
     #[serde(rename = "type")]
     pub handler_type: String,
     pub steps: Option<Vec<Value>>,
 }
 
 #[derive(Debug)]
-pub enum ExtensionError {
+pub enum PluginError {
     InvalidInvocation { message: String, usage: String },
     InvalidValue { message: String, usage: String },
     Io { message: String },
     CommandFailed { response: Response },
 }
 
-pub struct ExtensionRegistry {
-    extensions: Vec<ExtensionManifest>,
+pub struct PluginRegistry {
+    plugins: Vec<PluginManifest>,
 }
 
-impl ExtensionRegistry {
-    pub fn load() -> ExtensionRegistry {
-        let mut extensions = Vec::new();
-        for root in discover_extension_roots() {
-            load_extensions_from_root(&root, &mut extensions);
+impl PluginRegistry {
+    pub fn load() -> PluginRegistry {
+        let mut plugins = Vec::new();
+        for root in discover_plugin_roots() {
+            load_plugins_from_root(&root, &mut plugins);
         }
         if let Ok(cwd) = env::current_dir() {
-            load_extensions_from_node_modules(&cwd.join("node_modules"), &mut extensions);
+            load_plugins_from_node_modules(&cwd.join("node_modules"), &mut plugins);
         }
-        ExtensionRegistry { extensions }
+        PluginRegistry { plugins }
     }
 
-    pub fn list(&self) -> Vec<&ExtensionManifest> {
-        self.extensions.iter().collect()
+    pub fn list(&self) -> Vec<&PluginManifest> {
+        self.plugins.iter().collect()
     }
 
-    pub fn find(&self, name: &str) -> Option<&ExtensionManifest> {
-        self.extensions.iter().find(|ext| ext.name == name)
+    pub fn find(&self, name: &str) -> Option<&PluginManifest> {
+        self.plugins.iter().find(|ext| ext.name == name)
     }
 }
 
-pub fn print_extension_index(registry: &ExtensionRegistry) {
+pub fn print_plugin_index(registry: &PluginRegistry) {
     let list = registry.list();
     if list.is_empty() {
         return;
@@ -98,8 +98,8 @@ pub fn print_extension_index(registry: &ExtensionRegistry) {
     }
 }
 
-pub fn print_extension_help(
-    registry: &ExtensionRegistry,
+pub fn print_plugin_help(
+    registry: &PluginRegistry,
     name: &str,
     prefix: Option<&str>,
 ) -> bool {
@@ -128,11 +128,11 @@ pub fn print_extension_help(
     }
 
     if let Some(cmd) = ext.commands.iter().find(|c| c.name == prefix) {
-        print_extension_command_help(ext, cmd);
+        print_plugin_command_help(ext, cmd);
         return true;
     }
 
-    let matches: Vec<&ExtensionCommand> = ext
+    let matches: Vec<&PluginCommand> = ext
         .commands
         .iter()
         .filter(|c| c.name == prefix || c.name.starts_with(&format!("{}.", prefix)))
@@ -156,7 +156,7 @@ pub fn print_extension_help(
     true
 }
 
-fn print_extension_command_help(ext: &ExtensionManifest, cmd: &ExtensionCommand) {
+fn print_plugin_command_help(ext: &PluginManifest, cmd: &PluginCommand) {
     let usage = build_usage(ext, cmd);
     println!("Usage: {}", usage);
     if let Some(desc) = &cmd.description {
@@ -180,23 +180,23 @@ fn print_extension_command_help(ext: &ExtensionManifest, cmd: &ExtensionCommand)
     }
 }
 
-pub fn try_execute_extension(
-    registry: &ExtensionRegistry,
+pub fn try_execute_plugin(
+    registry: &PluginRegistry,
     args: &[String],
     flags: &Flags,
     session: &str,
-) -> Result<Option<Response>, ExtensionError> {
+) -> Result<Option<Response>, PluginError> {
     let Some((ext, cmd, arg_values)) = resolve_invocation(registry, args)? else {
         return Ok(None);
     };
-    let response = execute_extension_command(ext, cmd, &arg_values, flags, session)?;
+    let response = execute_plugin_command(ext, cmd, &arg_values, flags, session)?;
     Ok(Some(response))
 }
 
 fn resolve_invocation<'a>(
-    registry: &'a ExtensionRegistry,
+    registry: &'a PluginRegistry,
     args: &[String],
-) -> Result<Option<(&'a ExtensionManifest, &'a ExtensionCommand, HashMap<String, Value>)>, ExtensionError>
+) -> Result<Option<(&'a PluginManifest, &'a PluginCommand, HashMap<String, Value>)>, PluginError>
 {
     if args.len() < 2 {
         return Ok(None);
@@ -208,7 +208,7 @@ fn resolve_invocation<'a>(
     };
     let Some(cmd) = ext.commands.iter().find(|c| c.name == subcommand.as_str()) else {
         let usage = format!("agent-browser {} <command> [args]", ext.name);
-        return Err(ExtensionError::InvalidInvocation {
+        return Err(PluginError::InvalidInvocation {
             message: format!("Unknown subcommand: {}", subcommand),
             usage,
         });
@@ -220,17 +220,17 @@ fn resolve_invocation<'a>(
     Ok(Some((ext, cmd, arg_values)))
 }
 
-fn execute_extension_command(
-    ext: &ExtensionManifest,
-    cmd: &ExtensionCommand,
+fn execute_plugin_command(
+    ext: &PluginManifest,
+    cmd: &PluginCommand,
     args: &HashMap<String, Value>,
     _flags: &Flags,
     session: &str,
-) -> Result<Response, ExtensionError> {
+) -> Result<Response, PluginError> {
     match cmd.handler.handler_type.as_str() {
         "macro" => {
             let Some(steps) = &cmd.handler.steps else {
-                return Err(ExtensionError::InvalidInvocation {
+                return Err(PluginError::InvalidInvocation {
                     message: "Macro handler missing steps".to_string(),
                     usage: build_usage(ext, cmd),
                 });
@@ -241,16 +241,16 @@ fn execute_extension_command(
                 let mut rendered = interpolate_value(step, args);
                 ensure_command_id(&mut rendered);
                 if !rendered.get("action").is_some() {
-                    return Err(ExtensionError::InvalidInvocation {
+                    return Err(PluginError::InvalidInvocation {
                         message: "Macro step missing action field".to_string(),
                         usage: build_usage(ext, cmd),
                     });
                 }
-                let response = send_command(rendered, session).map_err(|e| ExtensionError::Io {
+                let response = send_command(rendered, session).map_err(|e| PluginError::Io {
                     message: e,
                 })?;
                 if !response.success {
-                    return Err(ExtensionError::CommandFailed { response });
+                    return Err(PluginError::CommandFailed { response });
                 }
                 last_response = response;
             }
@@ -259,20 +259,20 @@ fn execute_extension_command(
         "daemon" => {
             let rendered = json!({
                 "id": gen_id(),
-                "action": "extension",
-                "extension": ext.name,
+                "action": "plugin",
+                "plugin": ext.name,
                 "command": cmd.name,
                 "args": args
             });
-            let response = send_command(rendered, session).map_err(|e| ExtensionError::Io {
+            let response = send_command(rendered, session).map_err(|e| PluginError::Io {
                 message: e,
             })?;
             if !response.success {
-                return Err(ExtensionError::CommandFailed { response });
+                return Err(PluginError::CommandFailed { response });
             }
             Ok(response)
         }
-        other => Err(ExtensionError::InvalidInvocation {
+        other => Err(PluginError::InvalidInvocation {
             message: format!("Unsupported handler type: {}", other),
             usage: build_usage(ext, cmd),
         }),
@@ -289,14 +289,14 @@ fn ensure_command_id(value: &mut Value) {
 }
 
 fn parse_args(
-    ext: &ExtensionManifest,
-    cmd: &ExtensionCommand,
-    defs: &[ExtensionArg],
+    ext: &PluginManifest,
+    cmd: &PluginCommand,
+    defs: &[PluginArg],
     provided: &[String],
-) -> Result<HashMap<String, Value>, ExtensionError> {
+) -> Result<HashMap<String, Value>, PluginError> {
     let usage = build_usage(ext, cmd);
     if provided.len() > defs.len() {
-        return Err(ExtensionError::InvalidInvocation {
+        return Err(PluginError::InvalidInvocation {
             message: "Too many arguments".to_string(),
             usage,
         });
@@ -310,7 +310,7 @@ fn parse_args(
         } else if let Some(default) = &def.default {
             default.clone()
         } else if required {
-            return Err(ExtensionError::InvalidInvocation {
+            return Err(PluginError::InvalidInvocation {
                 message: format!("Missing argument: {}", def.name),
                 usage,
             });
@@ -322,23 +322,23 @@ fn parse_args(
     Ok(values)
 }
 
-fn parse_arg_value(def: &ExtensionArg, raw: &str, usage: &str) -> Result<Value, ExtensionError> {
+fn parse_arg_value(def: &PluginArg, raw: &str, usage: &str) -> Result<Value, PluginError> {
     let arg_type = def.arg_type.as_deref().unwrap_or("string");
     match arg_type {
         "int" => raw.parse::<i64>().map(Value::from).map_err(|_| {
-            ExtensionError::InvalidValue {
+            PluginError::InvalidValue {
                 message: format!("Invalid int for {}", def.name),
                 usage: usage.to_string(),
             }
         }),
         "number" => raw.parse::<f64>().map(Value::from).map_err(|_| {
-            ExtensionError::InvalidValue {
+            PluginError::InvalidValue {
                 message: format!("Invalid number for {}", def.name),
                 usage: usage.to_string(),
             }
         }),
         "bool" => raw.parse::<bool>().map(Value::from).map_err(|_| {
-            ExtensionError::InvalidValue {
+            PluginError::InvalidValue {
                 message: format!("Invalid bool for {}", def.name),
                 usage: usage.to_string(),
             }
@@ -347,7 +347,7 @@ fn parse_arg_value(def: &ExtensionArg, raw: &str, usage: &str) -> Result<Value, 
     }
 }
 
-fn build_usage(ext: &ExtensionManifest, cmd: &ExtensionCommand) -> String {
+fn build_usage(ext: &PluginManifest, cmd: &PluginCommand) -> String {
     let mut usage = format!("agent-browser {} {}", ext.name, cmd.name);
     if let Some(args) = &cmd.args {
         for arg in args {
@@ -404,40 +404,33 @@ fn exact_placeholder(s: &str) -> Option<&str> {
     None
 }
 
-fn discover_extension_roots() -> Vec<PathBuf> {
+fn discover_plugin_roots() -> Vec<PathBuf> {
     let mut roots = Vec::new();
     if let Ok(dir) = env::var("AGENT_BROWSER_PLUGINS_DIR") {
         if !dir.is_empty() {
             roots.push(PathBuf::from(dir));
         }
     }
-    if let Ok(dir) = env::var("AGENT_BROWSER_EXTENSIONS_DIR") {
-        if !dir.is_empty() {
-            roots.push(PathBuf::from(dir));
-        }
-    }
     if let Ok(cwd) = env::current_dir() {
         roots.push(cwd.join(".agent-browser").join("plugins"));
-        roots.push(cwd.join(".agent-browser").join("extensions"));
     }
     if let Some(config) = dirs::config_dir() {
         roots.push(config.join("agent-browser").join("plugins"));
-        roots.push(config.join("agent-browser").join("extensions"));
     }
     roots
 }
 
-fn load_extensions_from_root(root: &Path, out: &mut Vec<ExtensionManifest>) {
+fn load_plugins_from_root(root: &Path, out: &mut Vec<PluginManifest>) {
     if !root.exists() {
         return;
     }
 
-    if let Some(manifest) = load_manifest(&root.join("extension.json")) {
+    if let Some(manifest) = load_manifest(&root.join("plugin.json")) {
         out.push(manifest);
     }
 
     let node_modules = root.join("node_modules");
-    load_extensions_from_node_modules(&node_modules, out);
+    load_plugins_from_node_modules(&node_modules, out);
 
     let Ok(entries) = fs::read_dir(root) else {
         return;
@@ -447,14 +440,14 @@ fn load_extensions_from_root(root: &Path, out: &mut Vec<ExtensionManifest>) {
         if !path.is_dir() {
             continue;
         }
-        let manifest_path = path.join("extension.json");
+        let manifest_path = path.join("plugin.json");
         if let Some(manifest) = load_manifest(&manifest_path) {
             out.push(manifest);
         }
     }
 }
 
-fn load_extensions_from_node_modules(root: &Path, out: &mut Vec<ExtensionManifest>) {
+fn load_plugins_from_node_modules(root: &Path, out: &mut Vec<PluginManifest>) {
     if !root.exists() {
         return;
     }
@@ -474,7 +467,7 @@ fn load_extensions_from_node_modules(root: &Path, out: &mut Vec<ExtensionManifes
                 let pkg_path = scope_entry.path();
                 let pkg_name = scope_entry.file_name().to_string_lossy().to_string();
                 if is_plugin_package_name(&format!("{}/{}", name, pkg_name)) {
-                    if let Some(manifest) = load_manifest(&pkg_path.join("extension.json")) {
+                    if let Some(manifest) = load_manifest(&pkg_path.join("plugin.json")) {
                         out.push(manifest);
                     }
                 }
@@ -483,7 +476,7 @@ fn load_extensions_from_node_modules(root: &Path, out: &mut Vec<ExtensionManifes
         }
 
         if path.is_dir() && is_plugin_package_name(&name) {
-            if let Some(manifest) = load_manifest(&path.join("extension.json")) {
+            if let Some(manifest) = load_manifest(&path.join("plugin.json")) {
                 out.push(manifest);
             }
         }
@@ -521,9 +514,9 @@ fn strip_package_version(name: &str) -> Option<&str> {
     Some(name)
 }
 
-fn load_manifest(path: &Path) -> Option<ExtensionManifest> {
+fn load_manifest(path: &Path) -> Option<PluginManifest> {
     let Ok(raw) = fs::read_to_string(path) else {
         return None;
     };
-    serde_json::from_str::<ExtensionManifest>(&raw).ok()
+    serde_json::from_str::<PluginManifest>(&raw).ok()
 }

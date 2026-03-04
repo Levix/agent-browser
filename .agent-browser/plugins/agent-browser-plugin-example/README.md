@@ -4,7 +4,7 @@ Example table helpers plugin for agent-browser.
 
 ## Description
 
-This plugin provides utility commands for working with HTML tables in web pages. It demonstrates how to create custom extensions for the agent-browser CLI.
+This plugin provides utility commands for working with HTML tables in web pages. It demonstrates how to create custom plugins for the agent-browser CLI.
 
 ## Installation
 
@@ -94,7 +94,7 @@ The plugin uses Playwright's locator API to:
 
 ```
 agent-browser-plugin-example/
-├── extension.json      # Plugin manifest
+├── plugin.json      # Plugin manifest
 ├── package.json        # Node.js package configuration
 ├── tsconfig.json       # TypeScript configuration
 ├── src/
@@ -118,7 +118,7 @@ agent-browser-plugin-example/
 
 ## Troubleshooting
 
-### "Unknown extension: example" error
+### "Unknown plugin: example" error
 
 This means the plugin hasn't been built yet or the daemon needs to be restarted:
 

@@ -49,7 +49,7 @@ else:
 ## 扩展打包与发现
 
 ### 扩展清单
-- 文件名：`extension.json` 或 `extension.yaml`。
+- 文件名：`plugin.json` 或 `plugin.yaml`。
 - 示例：
 ```json
 {
@@ -78,9 +78,9 @@ else:
 ```
 
 ### 搜索路径
-- 仓库级：`.agent-browser/extensions/*/extension.json`
-- 用户级：`%APPDATA%/agent-browser/extensions/*/extension.json`（Windows）
-- 可选：`AGENT_BROWSER_EXTENSIONS_DIR` 覆盖默认路径
+- 仓库级：`.agent-browser/plugins/*/plugin.json`
+- 用户级：`%APPDATA%/agent-browser/plugins/*/plugin.json`（Windows）
+- 可选：`AGENT_BROWSER_PLUGINS_DIR` 覆盖默认路径
 
 ### 冲突规则
 - 内置命令优先级最高。
