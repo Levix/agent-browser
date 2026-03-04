@@ -2146,7 +2146,10 @@ Examples:
             r##"
 agent-browser plugins - Manage third-party plugins
 
-Usage: agent-browser plugins <add|init|remove|list|info> [args]
+Usage: agent-browser plugins <add|init|remove|list|info|validate> [args]
+
+Manifest:
+  plugin.json
 
 Commands:
   add [--user|--local|--dir <path>] <command...>
@@ -2159,11 +2162,17 @@ Commands:
       List available plugins
   info <name>
       Show plugin details
+  validate [--user|--local|--dir <path>] [name]
+      Validate plugin manifest structure and handlers
+
+Environment:
+  AGENT_BROWSER_PLUGINS_DIR  Override plugin discovery root directory
 
 Examples:
   agent-browser plugins add --user npx @scope/agent-browser-plugin-example
   agent-browser plugins list
   agent-browser plugins info example
+  agent-browser plugins validate
 "##
         }
 
@@ -2534,6 +2543,8 @@ Environment:
   AGENT_BROWSER_CONFIRM_INTERACTIVE Enable interactive confirmation prompts
   AGENT_BROWSER_ENGINE           Browser engine: chrome (default), lightpanda
   AGENT_BROWSER_NATIVE           Use native Rust daemon (experimental, no Node.js/Playwright)
+  AGENT_BROWSER_PLUGINS_DIR      Override plugin discovery root directory
+  AGENT_BROWSER_PLUGIN_PERMS     Comma-separated allowed plugin permissions
 
 Install (recommended, fastest - native Rust CLI):
   npm install -g agent-browser

@@ -1,6 +1,7 @@
 use crate::color;
-use super::registry::ExtensionRegistry;
+use super::registry::PluginRegistry;
 use serde_json::{json, Value};
+use std::collections::HashSet;
 use std::env;
 use std::fs;
 use std::io;
@@ -19,6 +20,7 @@ pub fn run_plugins(args: &[String], json_mode: bool) {
         "remove" => run_remove(&args[2..], json_mode),
         "list" => run_list(json_mode),
         "info" => run_info(&args[2..], json_mode),
+        "validate" => run_validate(&args[2..], json_mode),
         _ => {
             if json_mode {
                 println!(r#"{{"success":false,"error":"Unknown plugins subcommand"}}"#);
@@ -114,7 +116,7 @@ fn run_add(args: &[String], json_mode: bool) {
                 println!("  {}", target_dir.display());
                 if !has_manifest {
                     eprintln!(
-                        "{} No extension.json found after install. Plugin may be incomplete.",
+                        "{} No plugin.json found after install. Plugin may be incomplete.",
                         color::warning_indicator()
                     );
                 }
@@ -140,7 +142,7 @@ fn run_add(args: &[String], json_mode: bool) {
 }
 
 fn run_list(json_mode: bool) {
-    let registry = ExtensionRegistry::load();
+    let registry = PluginRegistry::load();
     let list = registry.list();
     if json_mode {
         let names: Vec<&str> = list.iter().map(|ext| ext.name.as_str()).collect();
@@ -171,7 +173,7 @@ fn run_info(args: &[String], json_mode: bool) {
         }
         exit(1);
     };
-    let registry = ExtensionRegistry::load();
+    let registry = PluginRegistry::load();
     let Some(ext) = registry.find(name) else {
         if json_mode {
             println!(r#"{{"success":false,"error":"Plugin not found"}}"#);
@@ -248,7 +250,15 @@ fn print_plugins_remove_help() {
     println!("  agent-browser plugins remove --user example");
 }
 
-#[derive(Clone)]
+fn print_plugins_validate_help() {
+    println!("Usage: agent-browser plugins validate [--user|--local|--dir <path>] [name]");
+    println!("Examples:");
+    println!("  agent-browser plugins validate");
+    println!("  agent-browser plugins validate --local");
+    println!("  agent-browser plugins validate --dir ./plugins eresh");
+}
+
+#[derive(Clone, Debug)]
 enum PluginLocation {
     User,
     Local,
@@ -328,6 +338,12 @@ fn parse_add_args(args: &[String]) -> Result<AddOptions, String> {
 struct InitOptions {
     name: String,
     location: PluginLocation,
+}
+
+#[derive(Debug)]
+struct ValidateOptions {
+    name: Option<String>,
+    location: Option<PluginLocation>,
 }
 
 fn parse_init_args(args: &[String]) -> Result<InitOptions, String> {
@@ -434,6 +450,54 @@ fn parse_remove_args(args: &[String]) -> Result<InitOptions, String> {
     })
 }
 
+fn parse_validate_args(args: &[String]) -> Result<ValidateOptions, String> {
+    let mut location: Option<PluginLocation> = None;
+    let mut name: Option<String> = None;
+    let mut i = 0;
+
+    while i < args.len() {
+        let token = args[i].as_str();
+        match token {
+            "--user" => {
+                if location.is_some() {
+                    return Err("Only one of --user, --local, or --dir is allowed".to_string());
+                }
+                location = Some(PluginLocation::User);
+                i += 1;
+            }
+            "--local" => {
+                if location.is_some() {
+                    return Err("Only one of --user, --local, or --dir is allowed".to_string());
+                }
+                location = Some(PluginLocation::Local);
+                i += 1;
+            }
+            "--dir" => {
+                if location.is_some() {
+                    return Err("Only one of --user, --local, or --dir is allowed".to_string());
+                }
+                let Some(dir) = args.get(i + 1) else {
+                    return Err("Missing value for --dir".to_string());
+                };
+                location = Some(PluginLocation::Custom(PathBuf::from(dir)));
+                i += 2;
+            }
+            _ if token.starts_with("--") => {
+                return Err(format!("Unknown option: {}", token));
+            }
+            _ => {
+                if name.is_some() {
+                    return Err("Only one plugin name is allowed".to_string());
+                }
+                name = Some(token.to_string());
+                i += 1;
+            }
+        }
+    }
+
+    Ok(ValidateOptions { name, location })
+}
+
 fn resolve_plugins_root(location: PluginLocation) -> Result<PathBuf, String> {
     match location {
         PluginLocation::Custom(path) => Ok(path),
@@ -501,12 +565,12 @@ fn run_init(args: &[String], json_mode: bool) {
         exit(1);
     }
 
-    let extension_json = plugin_dir.join("extension.json");
+    let plugin_manifest = plugin_dir.join("plugin.json");
     let tsconfig = plugin_dir.join("tsconfig.json");
     let readme = plugin_dir.join("README.md");
     let index_ts = src_dir.join("index.ts");
 
-    if let Err(err) = fs::write(&extension_json, default_extension_json(&opts.name)) {
+    if let Err(err) = fs::write(&plugin_manifest, default_plugin_json(&opts.name)) {
         handle_fs_error(err, json_mode);
     }
     if let Err(err) = fs::write(&tsconfig, default_tsconfig()) {
@@ -627,6 +691,386 @@ fn run_remove(args: &[String], json_mode: bool) {
 }
 
 #[derive(serde::Serialize)]
+struct PluginValidationResult {
+    name: Option<String>,
+    path: String,
+    valid: bool,
+    errors: Vec<String>,
+}
+
+fn run_validate(args: &[String], json_mode: bool) {
+    let opts = match parse_validate_args(args) {
+        Ok(v) => v,
+        Err(err) => {
+            if json_mode {
+                println!(r#"{{"success":false,"error":"{}"}}"#, err.replace('"', "'"));
+            } else {
+                eprintln!("{}", color::red(&err));
+                print_plugins_validate_help();
+            }
+            exit(1);
+        }
+    };
+
+    let roots = match resolve_validate_roots(opts.location) {
+        Ok(v) => v,
+        Err(err) => {
+            if json_mode {
+                println!(r#"{{"success":false,"error":"{}"}}"#, err.replace('"', "'"));
+            } else {
+                eprintln!("{} {}", color::error_indicator(), err);
+            }
+            exit(1);
+        }
+    };
+
+    let manifest_paths = collect_manifest_paths(&roots);
+    if manifest_paths.is_empty() {
+        if json_mode {
+            println!(r#"{{"success":false,"error":"No plugin manifests found"}}"#);
+        } else {
+            eprintln!("{} No plugin manifests found", color::error_indicator());
+        }
+        exit(1);
+    }
+
+    let mut results: Vec<PluginValidationResult> = manifest_paths
+        .iter()
+        .map(|path| validate_manifest(path))
+        .collect();
+
+    if let Some(name) = opts.name {
+        results = results
+            .into_iter()
+            .filter(|item| item.name.as_deref() == Some(name.as_str()))
+            .collect();
+        if results.is_empty() {
+            if json_mode {
+                println!(r#"{{"success":false,"error":"Plugin not found"}}"#);
+            } else {
+                eprintln!("{} Plugin not found", color::error_indicator());
+            }
+            exit(1);
+        }
+    }
+
+    let total = results.len();
+    let invalid = results.iter().filter(|r| !r.valid).count();
+    let valid = total - invalid;
+    let all_valid = invalid == 0;
+
+    if json_mode {
+        println!(
+            "{}",
+            json!({
+                "success": all_valid,
+                "data": {
+                    "total": total,
+                    "valid": valid,
+                    "invalid": invalid,
+                    "plugins": results
+                }
+            })
+        );
+    } else {
+        for item in &results {
+            let display_name = item.name.as_deref().unwrap_or("<unknown>");
+            if item.valid {
+                println!(
+                    "{} {} ({})",
+                    color::success_indicator(),
+                    display_name,
+                    item.path
+                );
+            } else {
+                eprintln!(
+                    "{} {} ({})",
+                    color::error_indicator(),
+                    display_name,
+                    item.path
+                );
+                for err in &item.errors {
+                    eprintln!("  - {}", err);
+                }
+            }
+        }
+
+        if all_valid {
+            println!(
+                "{} Validation passed: {}/{} plugin(s) valid",
+                color::success_indicator(),
+                valid,
+                total
+            );
+        } else {
+            eprintln!(
+                "{} Validation failed: {}/{} plugin(s) invalid",
+                color::error_indicator(),
+                invalid,
+                total
+            );
+        }
+    }
+
+    if !all_valid {
+        exit(1);
+    }
+}
+
+fn resolve_validate_roots(location: Option<PluginLocation>) -> Result<Vec<PathBuf>, String> {
+    let mut roots = Vec::new();
+    match location {
+        Some(loc) => roots.push(resolve_plugins_root(loc)?),
+        None => {
+            if let Ok(dir) = env::var("AGENT_BROWSER_PLUGINS_DIR") {
+                if !dir.is_empty() {
+                    roots.push(PathBuf::from(dir));
+                }
+            }
+            let cwd = env::current_dir().map_err(|e| e.to_string())?;
+            roots.push(cwd.join(".agent-browser").join("plugins"));
+            if let Some(config) = dirs::config_dir() {
+                roots.push(config.join("agent-browser").join("plugins"));
+            }
+        }
+    }
+
+    let mut seen = HashSet::new();
+    roots.retain(|p| seen.insert(p.clone()));
+    Ok(roots)
+}
+
+fn collect_manifest_paths(roots: &[PathBuf]) -> Vec<PathBuf> {
+    let mut manifests = Vec::new();
+    let mut seen = HashSet::new();
+    for root in roots {
+        collect_manifest_paths_from_root(root, &mut manifests, &mut seen);
+    }
+    manifests
+}
+
+fn collect_manifest_paths_from_root(
+    root: &Path,
+    out: &mut Vec<PathBuf>,
+    seen: &mut HashSet<PathBuf>,
+) {
+    if !root.exists() {
+        return;
+    }
+
+    let direct = root.join("plugin.json");
+    push_manifest_path(direct, out, seen);
+
+    collect_manifest_paths_from_node_modules(&root.join("node_modules"), out, seen);
+
+    let Ok(entries) = fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        if entry.file_name() == "node_modules" {
+            continue;
+        }
+        push_manifest_path(path.join("plugin.json"), out, seen);
+    }
+}
+
+fn collect_manifest_paths_from_node_modules(
+    node_modules: &Path,
+    out: &mut Vec<PathBuf>,
+    seen: &mut HashSet<PathBuf>,
+) {
+    if !node_modules.exists() {
+        return;
+    }
+
+    let Ok(entries) = fs::read_dir(node_modules) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('@') && path.is_dir() {
+            let Ok(scope_entries) = fs::read_dir(&path) else {
+                continue;
+            };
+            for scoped in scope_entries.flatten() {
+                let pkg_path = scoped.path();
+                let pkg_name = format!("{}/{}", name, scoped.file_name().to_string_lossy());
+                if is_plugin_package_name(&pkg_name) {
+                    push_manifest_path(pkg_path.join("plugin.json"), out, seen);
+                }
+            }
+            continue;
+        }
+
+        if path.is_dir() && is_plugin_package_name(&name) {
+            push_manifest_path(path.join("plugin.json"), out, seen);
+        }
+    }
+}
+
+fn push_manifest_path(path: PathBuf, out: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>) {
+    if !path.exists() {
+        return;
+    }
+    if seen.insert(path.clone()) {
+        out.push(path);
+    }
+}
+
+/// Validate one plugin manifest and return all structural errors found.
+fn validate_manifest(path: &Path) -> PluginValidationResult {
+    let path_display = path.display().to_string();
+    let mut errors = Vec::new();
+
+    let raw = match fs::read_to_string(path) {
+        Ok(v) => v,
+        Err(err) => {
+            return PluginValidationResult {
+                name: None,
+                path: path_display,
+                valid: false,
+                errors: vec![format!("Cannot read plugin.json: {}", err)],
+            };
+        }
+    };
+
+    let parsed: Value = match serde_json::from_str(&raw) {
+        Ok(v) => v,
+        Err(err) => {
+            return PluginValidationResult {
+                name: None,
+                path: path_display,
+                valid: false,
+                errors: vec![format!("Invalid JSON in plugin.json: {}", err)],
+            };
+        }
+    };
+
+    let Some(obj) = parsed.as_object() else {
+        return PluginValidationResult {
+            name: None,
+            path: path_display,
+            valid: false,
+            errors: vec!["Manifest root must be a JSON object".to_string()],
+        };
+    };
+
+    let name = obj
+        .get("name")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    if name.is_none() {
+        errors.push("Missing or empty field: name".to_string());
+    }
+
+    let version = obj
+        .get("version")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty());
+    if version.is_none() {
+        errors.push("Missing or empty field: version".to_string());
+    }
+
+    if let Some(entry) = obj.get("entry") {
+        match entry.as_str() {
+            Some(v) if !v.trim().is_empty() => {
+                let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
+                let entry_path = base_dir.join(v);
+                if !entry_path.exists() {
+                    errors.push(format!("Entry file not found: {}", entry_path.display()));
+                }
+            }
+            _ => errors.push("Field entry must be a non-empty string".to_string()),
+        }
+    }
+
+    let commands = obj.get("commands").and_then(|v| v.as_array());
+    match commands {
+        Some(list) if !list.is_empty() => {
+            let mut seen_names = HashSet::new();
+            for (idx, cmd) in list.iter().enumerate() {
+                let label = format!("commands[{}]", idx);
+                let Some(cmd_obj) = cmd.as_object() else {
+                    errors.push(format!("{} must be an object", label));
+                    continue;
+                };
+
+                let command_name = cmd_obj
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty());
+                let command_name = match command_name {
+                    Some(v) => v,
+                    None => {
+                        errors.push(format!("{}.name must be a non-empty string", label));
+                        continue;
+                    }
+                };
+                if !seen_names.insert(command_name.clone()) {
+                    errors.push(format!("Duplicate command name: {}", command_name));
+                }
+
+                let handler = cmd_obj.get("handler").and_then(|v| v.as_object());
+                let Some(handler_obj) = handler else {
+                    errors.push(format!("{}.handler must be an object", label));
+                    continue;
+                };
+                let handler_type = handler_obj.get("type").and_then(|v| v.as_str());
+                match handler_type {
+                    Some("daemon") => {}
+                    Some("macro") => {
+                        let steps = handler_obj.get("steps").and_then(|v| v.as_array());
+                        match steps {
+                            Some(step_list) if !step_list.is_empty() => {
+                                for (step_idx, step) in step_list.iter().enumerate() {
+                                    let action = step.get("action").and_then(|v| v.as_str());
+                                    if action.map(|s| s.trim().is_empty()).unwrap_or(true) {
+                                        errors.push(format!(
+                                            "{}.handler.steps[{}] missing action",
+                                            label, step_idx
+                                        ));
+                                    }
+                                }
+                            }
+                            _ => {
+                                errors.push(format!(
+                                    "{}.handler.steps must be a non-empty array for macro handler",
+                                    label
+                                ));
+                            }
+                        }
+                    }
+                    Some(other) => {
+                        errors.push(format!(
+                            "{}.handler.type must be one of: macro, daemon (got {})",
+                            label, other
+                        ));
+                    }
+                    None => errors.push(format!("{}.handler.type is required", label)),
+                }
+            }
+        }
+        Some(_) => errors.push("commands must be a non-empty array".to_string()),
+        None => errors.push("Missing or invalid field: commands".to_string()),
+    }
+
+    PluginValidationResult {
+        name,
+        path: path_display,
+        valid: errors.is_empty(),
+        errors,
+    }
+}
+
+#[derive(serde::Serialize)]
 struct UninstallResult {
     package: String,
     success: bool,
@@ -721,7 +1165,7 @@ fn handle_fs_error(err: std::io::Error, json_mode: bool) {
     exit(1);
 }
 
-fn default_extension_json(name: &str) -> String {
+fn default_plugin_json(name: &str) -> String {
     let template = format!(
         r#"{{
   "name": "{name}",
@@ -787,16 +1231,16 @@ Quick start:
 fn default_index_ts() -> String {
     r#"import type { Page } from 'playwright-core';
 
-type ExtensionContext = {
+type PluginContext = {
   page: Page;
 };
 
-type ExtensionCommandHandler = (
-  ctx: ExtensionContext,
+type PluginCommandHandler = (
+  ctx: PluginContext,
   args: Record<string, unknown>
 ) => Promise<unknown> | unknown;
 
-const hello: ExtensionCommandHandler = async ({ page }, args) => {
+const hello: PluginCommandHandler = async ({ page }, args) => {
   const selector = String(args.selector ?? '');
   if (!selector) {
     throw new Error('selector is required');
@@ -805,7 +1249,7 @@ const hello: ExtensionCommandHandler = async ({ page }, args) => {
   return { text };
 };
 
-export const commands: Record<string, ExtensionCommandHandler> = {
+export const commands: Record<string, PluginCommandHandler> = {
   'example.hello': hello,
 };
 "#
@@ -895,7 +1339,7 @@ fn sanitize_plugin_dir(name: &str) -> String {
 }
 
 fn find_manifest(root: &Path) -> Option<PathBuf> {
-    let direct = root.join("extension.json");
+    let direct = root.join("plugin.json");
     if direct.exists() {
         return Some(direct);
     }
@@ -919,14 +1363,14 @@ fn find_manifest_in_node_modules(root: &Path) -> Option<PathBuf> {
             };
             for scope_entry in scope_entries.flatten() {
                 let pkg_path = scope_entry.path();
-                if pkg_path.join("extension.json").exists() {
-                    return Some(pkg_path.join("extension.json"));
+                if pkg_path.join("plugin.json").exists() {
+                    return Some(pkg_path.join("plugin.json"));
                 }
             }
             continue;
         }
-        if path.is_dir() && path.join("extension.json").exists() {
-            return Some(path.join("extension.json"));
+        if path.is_dir() && path.join("plugin.json").exists() {
+            return Some(path.join("plugin.json"));
         }
     }
     None
@@ -956,7 +1400,7 @@ fn install_from_path(src: &Path, location: PluginLocation, json_mode: bool) {
                 println!("  {}", outcome.dir.display());
                 if !outcome.manifest {
                     eprintln!(
-                        "{} No extension.json found after install. Plugin may be incomplete.",
+                        "{} No plugin.json found after install. Plugin may be incomplete.",
                         color::warning_indicator()
                     );
                 }
@@ -1161,7 +1605,7 @@ mod tests {
             &src.join("package.json"),
             r#"{ "name": "agent-browser-plugin-example" }"#,
         );
-        write_file(&src.join("extension.json"), r#"{}"#);
+        write_file(&src.join("plugin.json"), r#"{}"#);
         write_file(&src.join("src/index.ts"), "export {};");
 
         let target_root = temp_dir("install-root");
@@ -1193,5 +1637,117 @@ mod tests {
         let opts = parse_remove_args(&["example".to_string()]).unwrap();
         assert!(matches!(opts.location, PluginLocation::Auto));
         assert_eq!(opts.name, "example");
+    }
+    
+    #[test]
+    fn test_parse_validate_args() {
+        let opts = parse_validate_args(&[]).unwrap();
+        assert!(opts.name.is_none());
+        assert!(opts.location.is_none());
+
+        let opts = parse_validate_args(&["--local".to_string(), "example".to_string()]).unwrap();
+        assert!(matches!(opts.location, Some(PluginLocation::Local)));
+        assert_eq!(opts.name.as_deref(), Some("example"));
+    }
+
+    #[test]
+    fn test_parse_validate_args_rejects_invalid_inputs() {
+        let err = parse_validate_args(&["--unknown".to_string()]).unwrap_err();
+        assert!(err.contains("Unknown option"));
+
+        let err = parse_validate_args(&["one".to_string(), "two".to_string()]).unwrap_err();
+        assert!(err.contains("Only one plugin name is allowed"));
+    }
+
+    #[test]
+    fn test_validate_manifest_success() {
+        let dir = temp_dir("validate-ok");
+        write_file(
+            &dir.join("plugin.json"),
+            r#"{
+  "name": "example",
+  "version": "1.0.0",
+  "entry": "./index.js",
+  "commands": [
+    { "name": "demo.ping", "handler": { "type": "daemon" } }
+  ]
+}"#,
+        );
+        write_file(&dir.join("index.js"), "export const commands = {};");
+        let result = validate_manifest(&dir.join("plugin.json"));
+        assert!(result.valid, "unexpected errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn test_validate_manifest_rejects_invalid_fields() {
+        let dir = temp_dir("validate-bad");
+        write_file(
+            &dir.join("plugin.json"),
+            r#"{
+  "name": "",
+  "version": "",
+  "entry": "./missing.js",
+  "commands": [
+    { "name": "demo.ping", "handler": { "type": "macro", "steps": [] } },
+    { "name": "demo.ping", "handler": { "type": "other" } }
+  ]
+}"#,
+        );
+        let result = validate_manifest(&dir.join("plugin.json"));
+        assert!(!result.valid);
+        assert!(!result.errors.is_empty());
+    }
+
+    #[test]
+    fn test_validate_manifest_rejects_macro_step_without_action() {
+        let dir = temp_dir("validate-macro-step");
+        write_file(
+            &dir.join("plugin.json"),
+            r##"{
+  "name": "macro-test",
+  "version": "1.0.0",
+  "commands": [
+    {
+      "name": "demo.run",
+      "handler": {
+        "type": "macro",
+        "steps": [ { "selector": "#btn" } ]
+      }
+    }
+  ]
+}"##,
+        );
+        let result = validate_manifest(&dir.join("plugin.json"));
+        assert!(!result.valid);
+        assert!(
+            result.errors.iter().any(|msg| msg.contains("missing action")),
+            "unexpected errors: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn test_collect_manifest_paths_discovers_direct_and_node_modules_plugins() {
+        let root = temp_dir("validate-collect");
+
+        write_file(
+            &root.join("direct-plugin/plugin.json"),
+            r#"{ "name": "direct", "version": "1.0.0", "commands": [{ "name": "a.b", "handler": { "type": "daemon" } }] }"#,
+        );
+        write_file(
+            &root.join("node_modules/agent-browser-plugin-demo/plugin.json"),
+            r#"{ "name": "nm-demo", "version": "1.0.0", "commands": [{ "name": "a.b", "handler": { "type": "daemon" } }] }"#,
+        );
+        write_file(
+            &root.join("node_modules/@scope/agent-browser-plugin-scoped/plugin.json"),
+            r#"{ "name": "nm-scoped", "version": "1.0.0", "commands": [{ "name": "a.b", "handler": { "type": "daemon" } }] }"#,
+        );
+        write_file(
+            &root.join("node_modules/not-a-plugin/plugin.json"),
+            r#"{ "name": "bad", "version": "1.0.0", "commands": [{ "name": "a.b", "handler": { "type": "daemon" } }] }"#,
+        );
+
+        let manifests = collect_manifest_paths(&[root]);
+        assert_eq!(manifests.len(), 3);
     }
 }

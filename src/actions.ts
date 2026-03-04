@@ -23,7 +23,7 @@ import {
   listStateFiles,
   cleanupExpiredStates,
 } from './state-utils.js';
-import { executeExtensionCommand } from './extension-registry.js';
+import { executePluginCommand } from './plugin-registry.js';
 import type {
   Command,
   Response,
@@ -54,7 +54,7 @@ import type {
   TabSwitchCommand,
   TabCloseCommand,
   WindowNewCommand,
-  ExtensionRunCommand,
+  PluginRunCommand,
   CookiesSetCommand,
   StorageGetCommand,
   StorageSetCommand,
@@ -595,8 +595,8 @@ async function dispatchAction(command: Command, browser: BrowserManager): Promis
       return await handleDiffUrl(command, browser);
     case 'auth_login':
       return await handleAuthLogin(command, browser);
-    case 'extension':
-      return await handleExtension(command, browser);
+    case 'plugin':
+        return await handlePlugin(command, browser);
     default: {
       // TypeScript narrows to never here, but we handle it for safety
       const unknownCommand = command as { id: string; action: string };
@@ -605,26 +605,23 @@ async function dispatchAction(command: Command, browser: BrowserManager): Promis
   }
 }
 
-async function handleExtension(
-  command: ExtensionRunCommand,
-  browser: BrowserManager
-): Promise<Response> {
+async function handlePlugin(command: PluginRunCommand, browser: BrowserManager): Promise<Response> {
   try {
-    const result = await executeExtensionCommand(
-      command.extension,
+    const result = await executePluginCommand(
+      command.plugin,
       command.command,
       command.args ?? {},
       browser
     );
-    const data = formatExtensionResult(result);
+    const data = formatPluginResult(result);
     return successResponse(command.id, data);
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Extension command failed';
+    const message = error instanceof Error ? error.message : 'Plugin command failed';
     return errorResponse(command.id, message);
   }
 }
 
-function formatExtensionResult(result: unknown): Record<string, unknown> {
+function formatPluginResult(result: unknown): Record<string, unknown> {
   if (result === null || result === undefined) {
     return { result: null };
   }

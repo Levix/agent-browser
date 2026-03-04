@@ -861,9 +861,9 @@ export interface ContentCommand extends BaseCommand {
   selector?: string;
 }
 
-export interface ExtensionRunCommand extends BaseCommand {
-  action: 'extension';
-  extension: string;
+export interface PluginRunCommand extends BaseCommand {
+  action: 'plugin';
+  plugin: string;
   command: string;
   args?: Record<string, unknown>;
 }
@@ -925,7 +925,7 @@ export type Command =
   | SelectCommand
   | HoverCommand
   | ContentCommand
-  | ExtensionRunCommand
+  | PluginRunCommand
   | CloseCommand
   | TabNewCommand
   | TabListCommand

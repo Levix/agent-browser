@@ -5,46 +5,46 @@ import { pathToFileURL } from 'node:url';
 import type { Page } from 'playwright-core';
 import type { BrowserManager } from './browser.js';
 
-export interface ExtensionContext {
+export interface PluginContext {
   browser: BrowserManager;
   page: Page;
 }
 
-export type ExtensionCommandHandler = (
-  ctx: ExtensionContext,
+export type PluginCommandHandler = (
+  ctx: PluginContext,
   args: Record<string, unknown>
 ) => Promise<unknown> | unknown;
 
-interface ExtensionModule {
-  commands?: Record<string, ExtensionCommandHandler>;
-  default?: { commands?: Record<string, ExtensionCommandHandler> };
+interface PluginModule {
+  commands?: Record<string, PluginCommandHandler>;
+  default?: { commands?: Record<string, PluginCommandHandler> };
 }
 
-interface ExtensionManifest {
+interface PluginManifest {
   name: string;
   entry?: string;
   commands?: Array<{ name: string }>;
   permissions?: string[];
 }
 
-interface ExtensionRuntime {
-  manifest: ExtensionManifest;
-  commands: Record<string, ExtensionCommandHandler>;
+interface PluginRuntime {
+  manifest: PluginManifest;
+  commands: Record<string, PluginCommandHandler>;
 }
 
-let cachedRegistry: Map<string, ExtensionRuntime> | null = null;
+let cachedRegistry: Map<string, PluginRuntime> | null = null;
 let cachedAllowedPermissions: Set<string> | null | undefined = undefined;
 
-export async function executeExtensionCommand(
-  extensionName: string,
+export async function executePluginCommand(
+  pluginName: string,
   commandName: string,
   args: Record<string, unknown>,
   browser: BrowserManager
 ): Promise<unknown> {
   const registry = await loadRegistry();
-  const runtime = registry.get(extensionName);
+  const runtime = registry.get(pluginName);
   if (!runtime) {
-    throw new Error(`Unknown extension: ${extensionName}`);
+    throw new Error(`Unknown plugin: ${pluginName}`);
   }
 
   enforcePermissions(runtime.manifest);
@@ -53,7 +53,7 @@ export async function executeExtensionCommand(
     runtime.manifest.commands &&
     !runtime.manifest.commands.some((cmd) => cmd.name === commandName)
   ) {
-    throw new Error(`Unknown extension command: ${commandName}`);
+    throw new Error(`Unknown plugin command: ${commandName}`);
   }
 
   const handler = runtime.commands[commandName];
@@ -61,28 +61,28 @@ export async function executeExtensionCommand(
     throw new Error(`Missing handler for command: ${commandName}`);
   }
 
-  const context: ExtensionContext = {
+  const context: PluginContext = {
     browser,
     page: browser.getPage(),
   };
   return await handler(context, args ?? {});
 }
 
-async function loadRegistry(): Promise<Map<string, ExtensionRuntime>> {
+async function loadRegistry(): Promise<Map<string, PluginRuntime>> {
   if (cachedRegistry) {
     return cachedRegistry;
   }
 
-  const registry = new Map<string, ExtensionRuntime>();
-  for (const root of discoverExtensionRoots()) {
-    await loadExtensionsFromRoot(root, registry);
+  const registry = new Map<string, PluginRuntime>();
+  for (const root of discoverPluginRoots()) {
+    await loadPluginsFromRoot(root, registry);
   }
-  await loadExtensionsFromNodeModules(path.join(process.cwd(), 'node_modules'), registry);
+  await loadPluginsFromNodeModules(path.join(process.cwd(), 'node_modules'), registry);
   cachedRegistry = registry;
   return registry;
 }
 
-function enforcePermissions(manifest: ExtensionManifest) {
+function enforcePermissions(manifest: PluginManifest) {
   const allowed = getAllowedPermissions();
   if (allowed === null) {
     return;
@@ -153,16 +153,12 @@ function loadPermissionsConfig(): string[] | null {
   return null;
 }
 
-function discoverExtensionRoots(): string[] {
+function discoverPluginRoots(): string[] {
   const roots: string[] = [];
+  // User override for plugin discovery root.
   const override = process.env.AGENT_BROWSER_PLUGINS_DIR;
   if (override && override.length > 0) {
     roots.push(override);
-  }
-
-  const legacy = process.env.AGENT_BROWSER_EXTENSIONS_DIR;
-  if (legacy && legacy.length > 0) {
-    roots.push(legacy);
   }
 
   roots.push(path.join(process.cwd(), '.agent-browser', 'plugins'));
@@ -180,38 +176,35 @@ function discoverExtensionRoots(): string[] {
   return roots;
 }
 
-async function loadExtensionsFromRoot(root: string, registry: Map<string, ExtensionRuntime>) {
+async function loadPluginsFromRoot(root: string, registry: Map<string, PluginRuntime>) {
   if (!fs.existsSync(root)) {
     return;
   }
 
-  const rootManifest = path.join(root, 'extension.json');
+  const rootManifest = path.join(root, 'plugin.json');
   if (fs.existsSync(rootManifest)) {
-    const runtime = await loadExtension(rootManifest);
+    const runtime = await loadPlugin(rootManifest);
     if (runtime) {
       registry.set(runtime.manifest.name, runtime);
     }
   }
 
   const rootNodeModules = path.join(root, 'node_modules');
-  await loadExtensionsFromNodeModules(rootNodeModules, registry);
+  await loadPluginsFromNodeModules(rootNodeModules, registry);
 
   const entries = fs.readdirSync(root, { withFileTypes: true });
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
-    const manifestPath = path.join(root, entry.name, 'extension.json');
+    const manifestPath = path.join(root, entry.name, 'plugin.json');
     if (!fs.existsSync(manifestPath)) continue;
-    const runtime = await loadExtension(manifestPath);
+    const runtime = await loadPlugin(manifestPath);
     if (runtime) {
       registry.set(runtime.manifest.name, runtime);
     }
   }
 }
 
-async function loadExtensionsFromNodeModules(
-  root: string,
-  registry: Map<string, ExtensionRuntime>
-) {
+async function loadPluginsFromNodeModules(root: string, registry: Map<string, PluginRuntime>) {
   if (!fs.existsSync(root)) {
     return;
   }
@@ -226,9 +219,9 @@ async function loadExtensionsFromNodeModules(
         if (!scopedEntry.isDirectory()) continue;
         const pkgName = `${name}/${scopedEntry.name}`;
         if (!isPluginPackageName(pkgName)) continue;
-        const manifestPath = path.join(entryPath, scopedEntry.name, 'extension.json');
+        const manifestPath = path.join(entryPath, scopedEntry.name, 'plugin.json');
         if (!fs.existsSync(manifestPath)) continue;
-        const runtime = await loadExtension(manifestPath);
+        const runtime = await loadPlugin(manifestPath);
         if (runtime) {
           registry.set(runtime.manifest.name, runtime);
         }
@@ -237,9 +230,9 @@ async function loadExtensionsFromNodeModules(
     }
 
     if (entry.isDirectory() && isPluginPackageName(name)) {
-      const manifestPath = path.join(entryPath, 'extension.json');
+      const manifestPath = path.join(entryPath, 'plugin.json');
       if (!fs.existsSync(manifestPath)) continue;
-      const runtime = await loadExtension(manifestPath);
+      const runtime = await loadPlugin(manifestPath);
       if (runtime) {
         registry.set(runtime.manifest.name, runtime);
       }
@@ -272,11 +265,11 @@ function stripPackageVersion(name: string): string | null {
   return name.slice(0, atIndex);
 }
 
-async function loadExtension(manifestPath: string): Promise<ExtensionRuntime | null> {
+async function loadPlugin(manifestPath: string): Promise<PluginRuntime | null> {
   const raw = fs.readFileSync(manifestPath, 'utf8');
-  let manifest: ExtensionManifest;
+  let manifest: PluginManifest;
   try {
-    manifest = JSON.parse(raw) as ExtensionManifest;
+    manifest = JSON.parse(raw) as PluginManifest;
   } catch {
     return null;
   }
@@ -291,7 +284,7 @@ async function loadExtension(manifestPath: string): Promise<ExtensionRuntime | n
     return null;
   }
 
-  const mod = (await import(pathToFileURL(entryPath).href)) as ExtensionModule;
+  const mod = (await import(pathToFileURL(entryPath).href)) as PluginModule;
   const commands = mod.commands ?? mod.default?.commands ?? {};
 
   if (!commands || Object.keys(commands).length === 0) {

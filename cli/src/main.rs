@@ -24,8 +24,8 @@ use commands::{gen_id, parse_command, ParseError};
 use connection::{ensure_daemon, get_socket_dir, send_command, DaemonOptions};
 use flags::{clean_args, parse_flags};
 use plugins::{
-    print_extension_help, print_extension_index, run_plugins, try_execute_extension,
-    ExtensionError, ExtensionRegistry,
+    print_plugin_help, print_plugin_index, run_plugins, try_execute_plugin,
+    PluginError, PluginRegistry,
 };
 use install::run_install;
 use output::{
@@ -172,9 +172,9 @@ fn parse_proxy(proxy_str: &str) -> serde_json::Value {
     })
 }
 
-fn report_extension_error(err: ExtensionError, json_mode: bool) {
+fn report_plugin_error(err: PluginError, json_mode: bool) {
     match err {
-        ExtensionError::InvalidInvocation { message, usage } => {
+        PluginError::InvalidInvocation { message, usage } => {
             if json_mode {
                 println!(
                     r#"{{"success":false,"error":"{}","type":"invalid_arguments","usage":"{}"}}"#,
@@ -186,7 +186,7 @@ fn report_extension_error(err: ExtensionError, json_mode: bool) {
                 eprintln!("Usage: {}", usage);
             }
         }
-        ExtensionError::InvalidValue { message, usage } => {
+        PluginError::InvalidValue { message, usage } => {
             if json_mode {
                 println!(
                     r#"{{"success":false,"error":"{}","type":"invalid_value","usage":"{}"}}"#,
@@ -198,14 +198,14 @@ fn report_extension_error(err: ExtensionError, json_mode: bool) {
                 eprintln!("Usage: {}", usage);
             }
         }
-        ExtensionError::Io { message } => {
+        PluginError::Io { message } => {
             if json_mode {
                 println!(r#"{{"success":false,"error":"{}"}}"#, message);
             } else {
                 eprintln!("{} {}", color::error_indicator(), message);
             }
         }
-        ExtensionError::CommandFailed { response } => {
+        PluginError::CommandFailed { response } => {
             if json_mode {
                 println!("{}", serde_json::to_string(&response).unwrap_or_default());
             } else {
@@ -216,6 +216,25 @@ fn report_extension_error(err: ExtensionError, json_mode: bool) {
                 );
             }
         }
+    }
+}
+
+fn report_parse_error(err: &ParseError, json_mode: bool) {
+    if json_mode {
+        let error_type = match err {
+            ParseError::UnknownCommand { .. } => "unknown_command",
+            ParseError::UnknownSubcommand { .. } => "unknown_subcommand",
+            ParseError::MissingArguments { .. } => "missing_arguments",
+            ParseError::InvalidValue { .. } => "invalid_value",
+            ParseError::InvalidSessionName { .. } => "invalid_session_name",
+        };
+        println!(
+            r#"{{"success":false,"error":"{}","type":"{}"}}"#,
+            err.format().replace('\n', " "),
+            error_type
+        );
+    } else {
+        eprintln!("{}", color::red(&err.format()));
     }
 }
 
@@ -339,14 +358,14 @@ fn main() {
             if print_command_help(cmd) {
                 return;
             }
-            let registry = ExtensionRegistry::load();
-            if print_extension_help(&registry, cmd, None) {
+            let registry = PluginRegistry::load();
+            if print_plugin_help(&registry, cmd, None) {
                 return;
             }
         }
         print_help();
-        let registry = ExtensionRegistry::load();
-        print_extension_index(&registry);
+        let registry = PluginRegistry::load();
+        print_plugin_index(&registry);
         return;
     }
 
@@ -361,10 +380,10 @@ fn main() {
     }
 
     if clean.get(0).map(|s| s.as_str()) == Some("help") {
-        let registry = ExtensionRegistry::load();
+        let registry = PluginRegistry::load();
         if clean.len() == 1 {
             print_help();
-            print_extension_index(&registry);
+            print_plugin_index(&registry);
             return;
         }
         let target = clean.get(1).map(|s| s.as_str()).unwrap_or("");
@@ -372,7 +391,7 @@ fn main() {
             return;
         }
         let prefix = clean.get(2).map(|s| s.as_str());
-        if print_extension_help(&registry, target, prefix) {
+        if print_plugin_help(&registry, target, prefix) {
             return;
         }
         if flags.json {
@@ -404,135 +423,64 @@ fn main() {
         return;
     }
 
+    let mut parse_error: Option<ParseError> = None;
     let mut cmd = match parse_command(&clean, &flags) {
-        Ok(c) => c,
+        Ok(c) => Some(c),
+        Err(e @ (ParseError::UnknownCommand { .. } | ParseError::UnknownSubcommand { .. })) => {
+            parse_error = Some(e);
+            None
+        }
         Err(e) => {
-            if let ParseError::UnknownCommand { .. } = e {
-                let registry = ExtensionRegistry::load();
-                let ext_name = clean.get(0).map(|s| s.as_str()).unwrap_or("");
-                if registry.find(ext_name).is_some() {
-                    let daemon_result = match ensure_daemon(
-                        &flags.session,
-                        flags.headed,
-                        flags.executable_path.as_deref(),
-                        &flags.extensions,
-                        flags.args.as_deref(),
-                        flags.user_agent.as_deref(),
-                        flags.proxy.as_deref(),
-                        flags.proxy_bypass.as_deref(),
-                        flags.ignore_https_errors,
-                        flags.allow_file_access,
-                        flags.profile.as_deref(),
-                        flags.state.as_deref(),
-                        flags.provider.as_deref(),
-                        flags.device.as_deref(),
-                        flags.session_name.as_deref(),
-                        flags.download_path.as_deref(),
-                    ) {
-                        Ok(result) => result,
-                        Err(err) => {
-                            if flags.json {
-                                println!(r#"{{"success":false,"error":"{}"}}"#, err);
-                            } else {
-                                eprintln!("{} {}", color::error_indicator(), err);
-                            }
-                            exit(1);
-                        }
-                    };
-
-                    if !daemon_result.already_running {
-                        if flags.json {
-                            println!(r#"{{"success":true,"data":{{"launched":true}}}}"#);
-                        } else {
-                            println!("{} Browser launched", color::success_indicator());
-                        }
-                    }
-
-                    match try_execute_extension(&registry, &clean, &flags, &flags.session) {
-                        Ok(Some(response)) => {
-                            print_response(&response, flags.json, None);
-                            return;
-                        }
-                        Ok(None) => {}
-                        Err(ext_err) => {
-                            report_extension_error(ext_err, flags.json);
-                            exit(1);
-                        }
-                    }
-                }
-
-                if flags.json {
-                    let error_type = "unknown_command";
-                    println!(
-                        r#"{{"success":false,"error":"{}","type":"{}"}}"#,
-                        e.format().replace('\n', " "),
-                        error_type
-                    );
-                } else {
-                    eprintln!("{}", color::red(&e.format()));
-                }
-                exit(1);
-            } else {
-                if flags.json {
-                    let error_type = match &e {
-                        ParseError::UnknownCommand { .. } => "unknown_command",
-                        ParseError::UnknownSubcommand { .. } => "unknown_subcommand",
-                        ParseError::MissingArguments { .. } => "missing_arguments",
-                        ParseError::InvalidValue { .. } => "invalid_value",
-                        ParseError::InvalidSessionName { .. } => "invalid_session_name",
-                    };
-                    println!(
-                        r#"{{"success":false,"error":"{}","type":"{}"}}"#,
-                        e.format().replace('\n', " "),
-                        error_type
-                    );
-                } else {
-                    eprintln!("{}", color::red(&e.format()));
-                }
-                exit(1);
-            }
+            report_parse_error(&e, flags.json);
+            exit(1);
         }
     };
-
-    // Handle --password-stdin for auth save
-    if cmd.get("action").and_then(|v| v.as_str()) == Some("auth_save") {
-        if cmd.get("password").is_some() {
-            eprintln!(
-                "{} Passwords on the command line may be visible in process listings and shell history. Use --password-stdin instead.",
-                color::warning_indicator()
-            );
-        }
-        if cmd
-            .get("passwordStdin")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false)
-        {
-            let mut pass = String::new();
-            if std::io::stdin().read_line(&mut pass).is_err() || pass.is_empty() {
-                eprintln!(
-                    "{} Failed to read password from stdin",
-                    color::error_indicator()
-                );
-                exit(1);
+    let mut plugin_registry: Option<PluginRegistry> = None;
+    if cmd.is_none() {
+        let registry = PluginRegistry::load();
+        let is_plugin_call = clean
+            .first()
+            .and_then(|name| registry.find(name))
+            .is_some();
+        if !is_plugin_call {
+            if let Some(err) = &parse_error {
+                report_parse_error(err, flags.json);
             }
-            let pass = pass.trim_end_matches('\n').trim_end_matches('\r');
-            if pass.is_empty() {
-                eprintln!("{} Password from stdin is empty", color::error_indicator());
-                exit(1);
-            }
-            cmd["password"] = json!(pass);
-            cmd.as_object_mut().unwrap().remove("passwordStdin");
+            exit(1);
         }
+        plugin_registry = Some(registry);
     }
 
-    // Handle local auth commands without starting the daemon.
-    // These don't need a browser, so we avoid sending passwords through the socket.
-    if let Some(action) = cmd.get("action").and_then(|v| v.as_str()) {
-        if matches!(
-            action,
-            "auth_save" | "auth_list" | "auth_show" | "auth_delete"
-        ) {
-            run_auth_cli(&cmd, flags.json);
+    // Handle --password-stdin for auth save
+    if let Some(cmd) = cmd.as_mut() {
+        if cmd.get("action").and_then(|v| v.as_str()) == Some("auth_save") {
+            if cmd.get("password").is_some() {
+                eprintln!(
+                    "{} Passwords on the command line may be visible in process listings and shell history. Use --password-stdin instead.",
+                    color::warning_indicator()
+                );
+            }
+            if cmd.get("passwordStdin").and_then(|v| v.as_bool()).unwrap_or(false) {
+                let mut pass = String::new();
+                if std::io::stdin().read_line(&mut pass).is_err() || pass.is_empty() {
+                    eprintln!("{} Failed to read password from stdin", color::error_indicator());
+                    exit(1);
+                }
+                let pass = pass.trim_end_matches('\n').trim_end_matches('\r');
+                if pass.is_empty() {
+                    eprintln!("{} Password from stdin is empty", color::error_indicator());
+                    exit(1);
+                }
+                cmd["password"] = json!(pass);
+                cmd.as_object_mut().unwrap().remove("passwordStdin");
+            }
+        }
+        // Handle local auth commands without starting the daemon.
+        // These don't need a browser, so we avoid sending passwords through the socket.
+        if let Some(action) = cmd.get("action").and_then(|v| v.as_str()) {
+            if matches!(action, "auth_save" | "auth_list" | "auth_show" | "auth_delete") {
+                run_auth_cli(cmd, flags.json);
+            }
         }
     }
 
@@ -983,6 +931,33 @@ fn main() {
         max_output: flags.max_output,
     };
 
+    if cmd.is_none() {
+        let registry = plugin_registry
+            .as_ref()
+            .expect("plugin registry should be available for plugin calls");
+        match try_execute_plugin(registry, &clean, &flags, &flags.session) {
+            Ok(Some(resp)) => {
+                let success = resp.success;
+                print_response_with_opts(&resp, None, &output_opts);
+                if !success {
+                    exit(1);
+                }
+                return;
+            }
+            Ok(None) => {
+                if let Some(err) = &parse_error {
+                    report_parse_error(err, flags.json);
+                }
+                exit(1);
+            }
+            Err(err) => {
+                report_plugin_error(err, flags.json);
+                exit(1);
+            }
+        }
+    }
+
+    let cmd = cmd.expect("command should be available for built-in actions");
     match send_command(cmd.clone(), &flags.session) {
         Ok(resp) => {
             let success = resp.success;

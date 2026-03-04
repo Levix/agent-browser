@@ -842,9 +842,9 @@ const contentSchema = baseCommandSchema.extend({
   selector: z.string().min(1).optional(),
 });
 
-const extensionSchema = baseCommandSchema.extend({
-  action: z.literal('extension'),
-  extension: z.string().min(1),
+const pluginSchema = baseCommandSchema.extend({
+  action: z.literal('plugin'),
+  plugin: z.string().min(1),
   command: z.string().min(1),
   args: z.record(z.unknown()).optional(),
 });
@@ -959,7 +959,7 @@ const commandSchema = z.discriminatedUnion('action', [
   selectSchema,
   hoverSchema,
   contentSchema,
-  extensionSchema,
+  pluginSchema,
   closeSchema,
   tabNewSchema,
   tabListSchema,

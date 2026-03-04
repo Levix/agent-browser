@@ -335,13 +335,17 @@ agent-browser plugins init --local example
 # Remove a plugin
 agent-browser plugins remove --local example
 
+# Validate plugin manifest(s)
+agent-browser plugins validate
+agent-browser plugins validate --local example
+
 # Help
 agent-browser help plugins
 ```
 
 ### Plugin permissions (optional)
 
-If a plugin declares permissions in its `extension.json`, you can allow only specific permissions:
+If a plugin declares permissions in its `plugin.json`, you can allow only specific permissions:
 
 - Environment variable: `AGENT_BROWSER_PLUGIN_PERMS=permA,permB`
 - Config file: `.agent-browser/plugins.json`
