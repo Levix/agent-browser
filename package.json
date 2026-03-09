@@ -4,6 +4,11 @@
   "description": "Headless browser automation CLI for AI agents",
   "type": "module",
   "main": "dist/daemon.js",
+  "exports": {
+    ".": "./dist/daemon.js",
+    "./plugin-api": "./dist/plugins/plugin-api.js",
+    "./*": "./*"
+  },
   "files": [
     "dist",
     "bin",

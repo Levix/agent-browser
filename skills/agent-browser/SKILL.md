@@ -479,11 +479,17 @@ agent-browser plugins init --local example
 # Remove a plugin
 agent-browser plugins remove --local example
 
+# Validate plugin manifest(s)
+agent-browser plugins validate
+agent-browser plugins validate --local example
+
 # Help
 agent-browser help plugins
 ```
 
-Plugin packages must be named `agent-browser-plugin-*` or `@scope/agent-browser-plugin-*`.
+Plugin packages must be named `agent-browser-plugin-*`.
+Plugin manifest file name is `plugin.json`.
+Plugin discovery root can be overridden with `AGENT_BROWSER_PLUGINS_DIR=/absolute/path/to/plugins`.
 
 ## Configuration File
 

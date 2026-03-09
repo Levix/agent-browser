@@ -24,7 +24,7 @@ use commands::{gen_id, parse_command, ParseError};
 use connection::{ensure_daemon, get_socket_dir, send_command, DaemonOptions};
 use flags::{clean_args, parse_flags};
 use plugins::{
-    print_plugin_help, print_plugin_index, run_plugins, try_execute_plugin,
+    print_plugin_help, print_plugin_index, register_plugin_output_hooks, run_plugins, try_execute_plugin,
     PluginError, PluginRegistry,
 };
 use install::run_install;
@@ -170,6 +170,24 @@ fn parse_proxy(proxy_str: &str) -> serde_json::Value {
         "username": &creds[..colon_pos],
         "password": &creds[colon_pos + 1..]
     })
+}
+
+fn normalize_plugin_dot_command(args: &[String], registry: &PluginRegistry) -> Vec<String> {
+    let Some(first) = args.first() else {
+        return Vec::new();
+    };
+    let Some((plugin_name, subcommand)) = first.split_once('.') else {
+        return args.to_vec();
+    };
+    if plugin_name.is_empty() || subcommand.is_empty() || registry.find(plugin_name).is_none() {
+        return args.to_vec();
+    }
+
+    let mut normalized = Vec::with_capacity(args.len() + 1);
+    normalized.push(plugin_name.to_string());
+    normalized.push(subcommand.to_string());
+    normalized.extend(args.iter().skip(1).cloned());
+    normalized
 }
 
 fn report_plugin_error(err: PluginError, json_mode: bool) {
@@ -343,6 +361,7 @@ fn main() {
     }
 
     let args: Vec<String> = env::args().skip(1).collect();
+    register_plugin_output_hooks();
     let mut flags = parse_flags(&args);
     let clean = clean_args(&args);
 
@@ -423,8 +442,11 @@ fn main() {
         return;
     }
 
+    let plugin_registry = PluginRegistry::load();
+    let normalized_invocation = normalize_plugin_dot_command(&clean, &plugin_registry);
+
     let mut parse_error: Option<ParseError> = None;
-    let mut cmd = match parse_command(&clean, &flags) {
+    let mut cmd = match parse_command(&normalized_invocation, &flags) {
         Ok(c) => Some(c),
         Err(e @ (ParseError::UnknownCommand { .. } | ParseError::UnknownSubcommand { .. })) => {
             parse_error = Some(e);
@@ -435,12 +457,11 @@ fn main() {
             exit(1);
         }
     };
-    let mut plugin_registry: Option<PluginRegistry> = None;
+
     if cmd.is_none() {
-        let registry = PluginRegistry::load();
-        let is_plugin_call = clean
+       let is_plugin_call = normalized_invocation
             .first()
-            .and_then(|name| registry.find(name))
+            .and_then(|name| plugin_registry.find(name))
             .is_some();
         if !is_plugin_call {
             if let Some(err) = &parse_error {
@@ -448,7 +469,6 @@ fn main() {
             }
             exit(1);
         }
-        plugin_registry = Some(registry);
     }
 
     // Handle --password-stdin for auth save
@@ -932,10 +952,7 @@ fn main() {
     };
 
     if cmd.is_none() {
-        let registry = plugin_registry
-            .as_ref()
-            .expect("plugin registry should be available for plugin calls");
-        match try_execute_plugin(registry, &clean, &flags, &flags.session) {
+        match try_execute_plugin(&plugin_registry, &normalized_invocation, &flags, &flags.session) {
             Ok(Some(resp)) => {
                 let success = resp.success;
                 print_response_with_opts(&resp, None, &output_opts);

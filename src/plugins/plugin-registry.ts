@@ -2,23 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import type { Page } from 'playwright-core';
-import type { BrowserManager } from './browser.js';
-
-export interface PluginContext {
-  browser: BrowserManager;
-  page: Page;
-}
-
-export type PluginCommandHandler = (
-  ctx: PluginContext,
-  args: Record<string, unknown>
-) => Promise<unknown> | unknown;
-
-interface PluginModule {
-  commands?: Record<string, PluginCommandHandler>;
-  default?: { commands?: Record<string, PluginCommandHandler> };
-}
+import type { BrowserManager } from '../browser.js';
+import type { PluginCommandHandler, PluginContext, PluginModule } from './plugin-api.js';
 
 interface PluginManifest {
   name: string;
@@ -162,7 +147,6 @@ function discoverPluginRoots(): string[] {
   }
 
   roots.push(path.join(process.cwd(), '.agent-browser', 'plugins'));
-  roots.push(path.join(process.cwd(), '.agent-browser', 'extensions'));
 
   const configDir =
     process.env.APPDATA ||
@@ -170,7 +154,6 @@ function discoverPluginRoots(): string[] {
     (os.homedir() ? path.join(os.homedir(), '.config') : '');
   if (configDir) {
     roots.push(path.join(configDir, 'agent-browser', 'plugins'));
-    roots.push(path.join(configDir, 'agent-browser', 'extensions'));
   }
 
   return roots;
@@ -213,22 +196,6 @@ async function loadPluginsFromNodeModules(root: string, registry: Map<string, Pl
   for (const entry of entries) {
     const name = entry.name;
     const entryPath = path.join(root, name);
-    if (entry.isDirectory() && name.startsWith('@')) {
-      const scopedEntries = fs.readdirSync(entryPath, { withFileTypes: true });
-      for (const scopedEntry of scopedEntries) {
-        if (!scopedEntry.isDirectory()) continue;
-        const pkgName = `${name}/${scopedEntry.name}`;
-        if (!isPluginPackageName(pkgName)) continue;
-        const manifestPath = path.join(entryPath, scopedEntry.name, 'plugin.json');
-        if (!fs.existsSync(manifestPath)) continue;
-        const runtime = await loadPlugin(manifestPath);
-        if (runtime) {
-          registry.set(runtime.manifest.name, runtime);
-        }
-      }
-      continue;
-    }
-
     if (entry.isDirectory() && isPluginPackageName(name)) {
       const manifestPath = path.join(entryPath, 'plugin.json');
       if (!fs.existsSync(manifestPath)) continue;
@@ -252,13 +219,8 @@ function isPluginPackageName(name: string): boolean {
 }
 
 function stripPackageVersion(name: string): string | null {
-  if (name.startsWith('@')) {
-    const slashIndex = name.indexOf('/');
-    if (slashIndex === -1) return null;
-    const rest = name.slice(slashIndex + 1);
-    const atIndex = rest.lastIndexOf('@');
-    if (atIndex === -1) return name;
-    return `${name.slice(0, slashIndex + 1)}${rest.slice(0, atIndex)}`;
+  if (name.startsWith('@') || name.length === 0) {
+    return null;
   }
   const atIndex = name.lastIndexOf('@');
   if (atIndex === -1) return name;

@@ -3,7 +3,9 @@ import * as os from 'os';
 import * as path from 'path';
 import * as net from 'net';
 import { EventEmitter } from 'events';
+import { BrowserManager } from './browser.js';
 import { getSocketDir, safeWrite } from './daemon.js';
+import * as daemonExports from './daemon.js';
 
 /**
  * HTTP request detection pattern used in daemon.ts to prevent cross-origin attacks.
@@ -157,5 +159,11 @@ describe('safeWrite', () => {
     expect(socket.listenerCount('drain')).toBe(0);
     expect(socket.listenerCount('error')).toBe(0);
     expect(socket.listenerCount('close')).toBe(0);
+  });
+});
+
+describe('daemon root exports', () => {
+  it('should re-export BrowserManager for plugin SDK typing', () => {
+    expect(daemonExports.BrowserManager).toBe(BrowserManager);
   });
 });
