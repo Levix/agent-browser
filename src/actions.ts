@@ -23,7 +23,8 @@ import {
   listStateFiles,
   cleanupExpiredStates,
 } from './state-utils.js';
-import { executePluginCommand } from './plugin-registry.js';
+import { executePluginCommand } from './plugins/plugin-registry.js';
+import { normalizePluginResult } from './plugins/plugin-result.js';
 import type {
   Command,
   Response,
@@ -596,7 +597,7 @@ async function dispatchAction(command: Command, browser: BrowserManager): Promis
     case 'auth_login':
       return await handleAuthLogin(command, browser);
     case 'plugin':
-        return await handlePlugin(command, browser);
+      return await handlePlugin(command, browser);
     default: {
       // TypeScript narrows to never here, but we handle it for safety
       const unknownCommand = command as { id: string; action: string };
@@ -607,34 +608,18 @@ async function dispatchAction(command: Command, browser: BrowserManager): Promis
 
 async function handlePlugin(command: PluginRunCommand, browser: BrowserManager): Promise<Response> {
   try {
-    const result = await executePluginCommand(
+    const rawResult = await executePluginCommand(
       command.plugin,
       command.command,
       command.args ?? {},
       browser
     );
-    const data = formatPluginResult(result);
+    const data = normalizePluginResult(rawResult);
     return successResponse(command.id, data);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Plugin command failed';
     return errorResponse(command.id, message);
   }
-}
-
-function formatPluginResult(result: unknown): Record<string, unknown> {
-  if (result === null || result === undefined) {
-    return { result: null };
-  }
-  if (typeof result === 'string') {
-    return { text: result };
-  }
-  if (typeof result === 'number' || typeof result === 'boolean') {
-    return { result };
-  }
-  if (typeof result === 'object') {
-    return result as Record<string, unknown>;
-  }
-  return { result: String(result) };
 }
 
 async function handleLaunch(

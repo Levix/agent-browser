@@ -264,6 +264,21 @@ agent-browser session                 # Show current session name
 agent-browser session list            # List active sessions
 ```
 
+## Plugins
+
+```bash
+agent-browser plugins list
+agent-browser plugins info <name>
+agent-browser plugins add --user <install-command...>
+agent-browser plugins init --local <name>
+agent-browser plugins remove --local <name>
+agent-browser plugins validate [--user|--local|--dir <path>] [name]
+```
+
+Use `plugins validate` to check `plugin.json` structure, handler types (`macro`/`daemon`), command name uniqueness, and entry file existence.
+Plugin package names must match `agent-browser-plugin-<name>`.
+Set `AGENT_BROWSER_PLUGINS_DIR=/absolute/path/to/plugins` to override the default plugin discovery root.
+
 ## Navigation
 
 ```bash

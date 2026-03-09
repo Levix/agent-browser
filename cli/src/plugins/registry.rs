@@ -28,6 +28,8 @@ pub struct PluginCommand {
     pub name: String,
     pub description: Option<String>,
     pub args: Option<Vec<PluginArg>>,
+    #[serde(default)]
+    pub passthrough: bool,
     pub handler: PluginHandler,
 }
 
@@ -156,6 +158,49 @@ pub fn print_plugin_help(
     true
 }
 
+pub fn resolve_plugin_command_help(command: &str) -> Option<String> {
+    if command.is_empty() {
+        return None;
+    }
+
+    let plugin_name = command.split('.').next().unwrap_or(command);
+    let help_names = [format!("{}.txt", command), format!("{}.txt", plugin_name)];
+
+    for file_name in help_names {
+        let mut candidates: Vec<PathBuf> = Vec::new();
+
+        for root in discover_plugin_roots() {
+            candidates.push(root.join("help").join(&file_name));
+            candidates.push(root.join(plugin_name).join("help").join(&file_name));
+            candidates.push(
+                root.join(format!("agent-browser-plugin-{}", plugin_name))
+                    .join("help")
+                    .join(&file_name),
+            );
+        }
+
+        if let Ok(cwd) = env::current_dir() {
+            candidates.push(
+                cwd.join("node_modules")
+                    .join(format!("agent-browser-plugin-{}", plugin_name))
+                    .join("help")
+                    .join(&file_name),
+            );
+        }
+
+        for candidate in candidates {
+            let Ok(raw) = fs::read_to_string(&candidate) else {
+                continue;
+            };
+            if !raw.trim().is_empty() {
+                return Some(raw);
+            }
+        }
+    }
+
+    None
+}
+
 fn print_plugin_command_help(ext: &PluginManifest, cmd: &PluginCommand) {
     let usage = build_usage(ext, cmd);
     println!("Usage: {}", usage);
@@ -196,28 +241,61 @@ pub fn try_execute_plugin(
 fn resolve_invocation<'a>(
     registry: &'a PluginRegistry,
     args: &[String],
-) -> Result<Option<(&'a PluginManifest, &'a PluginCommand, HashMap<String, Value>)>, PluginError>
-{
-    if args.len() < 2 {
+) -> Result<
+    Option<(
+        &'a PluginManifest,
+        &'a PluginCommand,
+        HashMap<String, Value>,
+    )>,
+    PluginError,
+> {
+    if args.is_empty() {
         return Ok(None);
     }
     let ext_name = &args[0];
-    let subcommand = &args[1];
     let Some(ext) = registry.find(ext_name) else {
         return Ok(None);
     };
-    let Some(cmd) = ext.commands.iter().find(|c| c.name == subcommand.as_str()) else {
-        let usage = format!("agent-browser {} <command> [args]", ext.name);
+    if args.len() < 2 {
+        if let Some(cmd) = ext.commands.iter().find(|c| c.passthrough) {
+            return Ok(Some((ext, cmd, build_passthrough_args(&[]))));
+        }
         return Err(PluginError::InvalidInvocation {
-            message: format!("Unknown subcommand: {}", subcommand),
-            usage,
+            message: "Missing subcommand".to_string(),
+            usage: format!("agent-browser {} <command> [args]", ext.name),
         });
-    };
+    }
 
-    let arg_defs = cmd.args.as_deref().unwrap_or(&[]);
-    let provided = &args[2..];
-    let arg_values = parse_args(ext, cmd, arg_defs, provided)?;
-    Ok(Some((ext, cmd, arg_values)))
+    let subcommand = &args[1];
+    if let Some(cmd) = ext.commands.iter().find(|c| c.name == subcommand.as_str()) {
+        if cmd.passthrough {
+            return Ok(Some((ext, cmd, build_passthrough_args(&args[2..]))));
+        }
+
+        let arg_defs = cmd.args.as_deref().unwrap_or(&[]);
+        let provided = &args[2..];
+        let arg_values = parse_args(ext, cmd, arg_defs, provided)?;
+        return Ok(Some((ext, cmd, arg_values)));
+    }
+
+    if let Some(cmd) = ext.commands.iter().find(|c| c.passthrough) {
+        return Ok(Some((ext, cmd, build_passthrough_args(&args[1..]))));
+    }
+
+    Err(PluginError::InvalidInvocation {
+        message: format!("Unknown subcommand: {}", subcommand),
+        usage: format!("agent-browser {} <command> [args]", ext.name),
+    })
+}
+
+fn build_passthrough_args(provided: &[String]) -> HashMap<String, Value> {
+    let mut arg_values = HashMap::new();
+    let argv = provided
+        .iter()
+        .map(|value| Value::String(value.clone()))
+        .collect::<Vec<_>>();
+    arg_values.insert("argv".to_string(), Value::Array(argv));
+    arg_values
 }
 
 fn execute_plugin_command(
@@ -459,21 +537,6 @@ fn load_plugins_from_node_modules(root: &Path, out: &mut Vec<PluginManifest>) {
     for entry in entries.flatten() {
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().to_string();
-        if name.starts_with('@') && path.is_dir() {
-            let Ok(scope_entries) = fs::read_dir(&path) else {
-                continue;
-            };
-            for scope_entry in scope_entries.flatten() {
-                let pkg_path = scope_entry.path();
-                let pkg_name = scope_entry.file_name().to_string_lossy().to_string();
-                if is_plugin_package_name(&format!("{}/{}", name, pkg_name)) {
-                    if let Some(manifest) = load_manifest(&pkg_path.join("plugin.json")) {
-                        out.push(manifest);
-                    }
-                }
-            }
-            continue;
-        }
 
         if path.is_dir() && is_plugin_package_name(&name) {
             if let Some(manifest) = load_manifest(&path.join("plugin.json")) {
@@ -485,28 +548,14 @@ fn load_plugins_from_node_modules(root: &Path, out: &mut Vec<PluginManifest>) {
 
 fn is_plugin_package_name(name: &str) -> bool {
     if let Some(base) = strip_package_version(name) {
-        if let Some((scope, pkg)) = base.split_once('/') {
-            if !scope.starts_with('@') {
-                return false;
-            }
-            return pkg.starts_with("agent-browser-plugin-");
-        }
         return base.starts_with("agent-browser-plugin-");
     }
     false
 }
 
 fn strip_package_version(name: &str) -> Option<&str> {
-    if name.starts_with('@') {
-        let Some(slash) = name.find('/') else {
-            return None;
-        };
-        let rest = &name[slash + 1..];
-        if let Some(at) = rest.rfind('@') {
-            let end = slash + 1 + at;
-            return Some(&name[..end]);
-        }
-        return Some(name);
+    if name.starts_with('@') || name.is_empty() {
+        return None;
     }
     if let Some(at) = name.rfind('@') {
         return Some(&name[..at]);

@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { BrowserManager } from './browser.js';
+import type { BrowserManager } from '../browser.js';
 import { executePluginCommand } from './plugin-registry.js';
 
 describe('executePluginCommand', () => {

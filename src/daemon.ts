@@ -18,6 +18,9 @@ import {
   getAutoStateFilePath,
 } from './state-utils.js';
 
+// Re-export for plugin authors using the package root entry.
+export { BrowserManager } from './browser.js';
+
 // Manager type - either desktop browser or iOS
 type Manager = BrowserManager | IOSManager;
 

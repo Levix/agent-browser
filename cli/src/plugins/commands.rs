@@ -57,7 +57,7 @@ fn run_add(args: &[String], json_mode: bool) {
         Some(pkg) => pkg,
         None => {
             let msg =
-                "No plugin package found. Package must match agent-browser-plugin-* or @scope/agent-browser-plugin-*";
+                "No plugin package found. Package must match agent-browser-plugin-*";
             if json_mode {
                 println!(r#"{{"success":false,"error":"{}"}}"#, msg);
             } else {
@@ -230,7 +230,7 @@ fn print_plugins_help() {
 fn print_plugins_add_help() {
     println!("Usage: agent-browser plugins add [--user|--local|--dir <path>] <command...>");
     println!("Example:");
-    println!("  agent-browser plugins add --user npx @scope/agent-browser-plugin-example");
+    println!("  agent-browser plugins add --user npx agent-browser-plugin-example");
     println!("  agent-browser plugins add --local ./my-plugins/agent-browser-plugin-example");
 }
 
@@ -255,7 +255,7 @@ fn print_plugins_validate_help() {
     println!("Examples:");
     println!("  agent-browser plugins validate");
     println!("  agent-browser plugins validate --local");
-    println!("  agent-browser plugins validate --dir ./plugins eresh");
+    println!("  agent-browser plugins validate --dir ./plugins example");
 }
 
 #[derive(Clone, Debug)]
@@ -893,19 +893,6 @@ fn collect_manifest_paths_from_node_modules(
     for entry in entries.flatten() {
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().to_string();
-        if name.starts_with('@') && path.is_dir() {
-            let Ok(scope_entries) = fs::read_dir(&path) else {
-                continue;
-            };
-            for scoped in scope_entries.flatten() {
-                let pkg_path = scoped.path();
-                let pkg_name = format!("{}/{}", name, scoped.file_name().to_string_lossy());
-                if is_plugin_package_name(&pkg_name) {
-                    push_manifest_path(pkg_path.join("plugin.json"), out, seen);
-                }
-            }
-            continue;
-        }
 
         if path.is_dir() && is_plugin_package_name(&name) {
             push_manifest_path(path.join("plugin.json"), out, seen);
@@ -1134,9 +1121,6 @@ fn find_installed_plugin_package(dir: &Path, plugin_name: &str) -> Option<String
 }
 
 fn package_name_matches_plugin(package: &str, plugin_name: &str) -> bool {
-    if let Some((_, pkg)) = package.split_once('/') {
-        return pkg.ends_with(plugin_name);
-    }
     package.ends_with(plugin_name)
 }
 
@@ -1306,16 +1290,8 @@ fn trim_quotes(token: &str) -> &str {
 }
 
 fn strip_package_version(name: &str) -> Option<&str> {
-    if name.starts_with('@') {
-        let Some(slash) = name.find('/') else {
-            return None;
-        };
-        let rest = &name[slash + 1..];
-        if let Some(at) = rest.rfind('@') {
-            let end = slash + 1 + at;
-            return Some(&name[..end]);
-        }
-        return Some(name);
+    if name.starts_with('@') || name.is_empty() {
+        return None;
     }
     if let Some(at) = name.rfind('@') {
         return Some(&name[..at]);
@@ -1324,12 +1300,6 @@ fn strip_package_version(name: &str) -> Option<&str> {
 }
 
 fn is_plugin_package_name(name: &str) -> bool {
-    if let Some((scope, pkg)) = name.split_once('/') {
-        if !scope.starts_with('@') {
-            return false;
-        }
-        return pkg.starts_with("agent-browser-plugin-");
-    }
     name.starts_with("agent-browser-plugin-")
 }
 
@@ -1357,19 +1327,7 @@ fn find_manifest_in_node_modules(root: &Path) -> Option<PathBuf> {
     for entry in entries.flatten() {
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().to_string();
-        if name.starts_with('@') && path.is_dir() {
-            let Ok(scope_entries) = fs::read_dir(&path) else {
-                continue;
-            };
-            for scope_entry in scope_entries.flatten() {
-                let pkg_path = scope_entry.path();
-                if pkg_path.join("plugin.json").exists() {
-                    return Some(pkg_path.join("plugin.json"));
-                }
-            }
-            continue;
-        }
-        if path.is_dir() && path.join("plugin.json").exists() {
+        if path.is_dir() && is_plugin_package_name(&name) && path.join("plugin.json").exists() {
             return Some(path.join("plugin.json"));
         }
     }
@@ -1440,7 +1398,7 @@ fn install_from_path_result(
 
     if !is_plugin_package_name(&pkg_name) {
         return Err(
-            "No plugin package found. Package must match agent-browser-plugin-* or @scope/agent-browser-plugin-*"
+            "No plugin package found. Package must match agent-browser-plugin-*"
                 .to_string(),
         );
     }
@@ -1526,9 +1484,9 @@ mod tests {
     #[test]
     fn test_is_plugin_package_name() {
         assert!(is_plugin_package_name("agent-browser-plugin-example"));
-        assert!(is_plugin_package_name("@scope/agent-browser-plugin-example"));
         assert!(!is_plugin_package_name("agent-browser-example"));
-        assert!(!is_plugin_package_name("@scope/agent-browser-example"));
+        assert!(!is_plugin_package_name("scoped-agent-browser-plugin-example"));
+        assert!(!is_plugin_package_name("scoped-agent-browser-example"));
     }
 
     #[test]
@@ -1537,10 +1495,7 @@ mod tests {
             strip_package_version("agent-browser-plugin-example@1.2.3"),
             Some("agent-browser-plugin-example")
         );
-        assert_eq!(
-            strip_package_version("@scope/agent-browser-plugin-example@1.2.3"),
-            Some("@scope/agent-browser-plugin-example")
-        );
+        assert_eq!(strip_package_version("not-a-plugin@1.2.3"), Some("not-a-plugin"));
     }
 
     #[test]
@@ -1561,14 +1516,8 @@ mod tests {
             extract_plugin_package(&cmd),
             Some("agent-browser-plugin-example".to_string())
         );
-        let cmd = vec![
-            "npx".to_string(),
-            "@scope/agent-browser-plugin-example@1.0.0".to_string(),
-        ];
-        assert_eq!(
-            extract_plugin_package(&cmd),
-            Some("@scope/agent-browser-plugin-example".to_string())
-        );
+        let cmd = vec!["npx".to_string(), "not-a-plugin@1.0.0".to_string()];
+        assert_eq!(extract_plugin_package(&cmd), None);
     }
 
     #[test]
@@ -1739,15 +1688,11 @@ mod tests {
             r#"{ "name": "nm-demo", "version": "1.0.0", "commands": [{ "name": "a.b", "handler": { "type": "daemon" } }] }"#,
         );
         write_file(
-            &root.join("node_modules/@scope/agent-browser-plugin-scoped/plugin.json"),
-            r#"{ "name": "nm-scoped", "version": "1.0.0", "commands": [{ "name": "a.b", "handler": { "type": "daemon" } }] }"#,
-        );
-        write_file(
             &root.join("node_modules/not-a-plugin/plugin.json"),
             r#"{ "name": "bad", "version": "1.0.0", "commands": [{ "name": "a.b", "handler": { "type": "daemon" } }] }"#,
         );
 
         let manifests = collect_manifest_paths(&[root]);
-        assert_eq!(manifests.len(), 3);
+        assert_eq!(manifests.len(), 2);
     }
 }

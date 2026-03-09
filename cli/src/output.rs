@@ -1,9 +1,11 @@
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 use crate::color;
 use crate::connection::Response;
 
 static BOUNDARY_NONCE: OnceLock<String> = OnceLock::new();
+type ExternalHelpProvider = fn(&str) -> Option<String>;
+static EXTERNAL_HELP_PROVIDERS: OnceLock<Mutex<Vec<ExternalHelpProvider>>> = OnceLock::new();
 
 /// Per-process nonce for content boundary markers. Uses a CSPRNG (getrandom) so
 /// that untrusted page content cannot predict or spoof the boundary delimiter.
@@ -14,6 +16,28 @@ fn get_boundary_nonce() -> &'static str {
         getrandom::getrandom(&mut buf).expect("failed to generate random nonce");
         buf.iter().map(|b| format!("{:02x}", b)).collect()
     })
+}
+
+pub fn register_external_help_provider(provider: ExternalHelpProvider) {
+    let providers = EXTERNAL_HELP_PROVIDERS.get_or_init(|| Mutex::new(Vec::new()));
+    let mut providers = providers.lock().expect("external help providers poisoned");
+    if providers.iter().any(|existing| *existing as usize == provider as usize) {
+        return;
+    }
+    providers.push(provider);
+}
+
+fn resolve_external_help(command: &str) -> Option<String> {
+    let providers = EXTERNAL_HELP_PROVIDERS.get_or_init(|| Mutex::new(Vec::new()));
+    let providers = providers.lock().expect("external help providers poisoned");
+    for provider in providers.iter() {
+        if let Some(help) = provider(command) {
+            if !help.trim().is_empty() {
+                return Some(help);
+            }
+        }
+    }
+    None
 }
 
 #[derive(Default)]
@@ -816,6 +840,11 @@ pub fn print_response_with_opts(resp: &Response, action: Option<&str>, opts: &Ou
 
 /// Print command-specific help. Returns true if help was printed, false if command unknown.
 pub fn print_command_help(command: &str) -> bool {
+  if let Some(help) = resolve_external_help(command) {
+      println!("{}", help.trim());
+      return true;
+  }
+
     let help = match command {
         // === Navigation ===
         "open" | "goto" | "navigate" => {
@@ -2169,7 +2198,7 @@ Environment:
   AGENT_BROWSER_PLUGINS_DIR  Override plugin discovery root directory
 
 Examples:
-  agent-browser plugins add --user npx @scope/agent-browser-plugin-example
+  agent-browser plugins add --user npx agent-browser-plugin-example
   agent-browser plugins list
   agent-browser plugins info example
   agent-browser plugins validate
