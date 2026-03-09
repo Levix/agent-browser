@@ -1,150 +1,105 @@
 # agent-browser-plugin-example
 
-Example table helpers plugin for agent-browser.
+A practical plugin demo for table extraction and reporting in `agent-browser`.
 
-## Description
+## What this demo does
 
-This plugin provides utility commands for working with HTML tables in web pages. It demonstrates how to create custom plugins for the agent-browser CLI.
+This plugin now supports a complete mini workflow:
 
-## Installation
+- Inspect table structure (`table.describe`)
+- Read one row as plain text (`table.getRow`)
+- Read one row as structured cells (`table.getRowCells`)
+- Search rows by keyword (`table.findRows`)
+- Export table to markdown (`table.toMarkdown`)
 
-This plugin is already installed in your local `.agent-browser/plugins/` directory.
-
-### Building from Source
-
-Since this plugin is written in TypeScript, you need to compile it before use:
+## Build
 
 ```bash
 cd .agent-browser/plugins/agent-browser-plugin-example
-npx tsc
+pnpm exec tsc -p tsconfig.json
 ```
 
-This will generate the `dist/` folder with the compiled JavaScript files.
+After rebuilding, restart daemon once:
+
+```bash
+agent-browser close
+```
+
+## Quick run demo
+
+```bash
+agent-browser open "data:text/html,
+<table id='orders'>
+    <thead><tr><th>ID</th><th>User</th><th>Status</th><th>Total</th></tr></thead>
+    <tbody>
+        <tr><td>1001</td><td>Alice</td><td>Paid</td><td>49.50</td></tr>
+        <tr><td>1002</td><td>Bob</td><td>Pending</td><td>19.99</td></tr>
+        <tr><td>1003</td><td>Carol</td><td>Paid</td><td>99.00</td></tr>
+        <tr><td>1004</td><td>Dave</td><td>Failed</td><td>12.00</td></tr>
+    </tbody>
+</table>"
+
+agent-browser example table.describe "#orders" 3 false
+agent-browser example table.getRow "#orders" 1
+agent-browser example table.getRowCells "#orders" 2 false
+agent-browser example table.findRows "#orders" "Paid" 10 false false
+agent-browser example table.toMarkdown "#orders" 20 false
+```
 
 ## Commands
 
-### table.getRow
+### `table.describe <selector> [sampleRows] [includeHidden]`
 
-Get the text content of a specific row in a table.
+Returns:
 
-**Syntax:**
-```bash
-agent-browser example table.getRow <selector> [index]
-```
+- table selector
+- header names
+- row count
+- inferred column count
+- sample rows
 
-**Arguments:**
-- `selector` (string, required): CSS selector for the table element
-- `index` (integer, optional): Zero-based row index. Default: `0`
+### `table.getRow <selector> [index]`
 
-**Returns:** The text content of the specified table row.
+Returns text content of the row at `index` (compatible with old demo behavior).
 
-## Usage Examples
+### `table.getRowCells <selector> [index] [includeHidden]`
 
-### Example 1: Get the first row from a table
+Returns structured row data:
 
-```bash
-# Navigate to a page with a table
-agent-browser goto "https://example.com/data"
+- `cells`: ordered cell array
+- `headers`: table headers
+- `headerMap`: key/value mapping using header names
 
-# Get the first row (index 0)
-agent-browser example table.getRow "table.data-table" 0
-```
+### `table.findRows <selector> <query> [limit] [caseSensitive] [includeHidden]`
 
-### Example 2: Get the third row from a table
+Find rows where joined row text contains the query string.
 
-```bash
-# Get the third row (index 2)
-agent-browser example table.getRow "table.data-table" 2
-```
+### `table.toMarkdown <selector> [maxRows] [includeHidden]`
 
-### Example 3: Test with inline HTML
+Exports a markdown table string that can be copied directly into docs/reports.
 
-```bash
-# Navigate to test HTML
-agent-browser goto "data:text/html,<table><tbody><tr><td>Row 1</td></tr><tr><td>Row 2</td></tr><tr><td>Row 3</td></tr></tbody></table>"
+## Notes
 
-# Get first row
-agent-browser example table.getRow "table" 0
-# Output: Row 1
-
-# Get second row
-agent-browser example table.getRow "table" 1
-# Output: Row 2
-```
-
-### Example 4: Using with complex selectors
-
-```bash
-# Use a specific table by class or ID
-agent-browser example table.getRow "#users-table" 0
-agent-browser example table.getRow ".product-list" 5
-```
-
-## How It Works
-
-The plugin uses Playwright's locator API to:
-1. Find the table element using the provided CSS selector
-2. Locate the `<tbody> <tr>` elements within that table
-3. Get the nth row based on the index parameter
-4. Extract and return the inner text of that row
-
-## Development
-
-### Project Structure
-
-```
-agent-browser-plugin-example/
-├── plugin.json      # Plugin manifest
-├── package.json        # Node.js package configuration
-├── tsconfig.json       # TypeScript configuration
-├── src/
-│   └── index.ts        # Plugin source code
-└── dist/               # Compiled JavaScript (generated)
-    └── index.js
-```
-
-### Modifying the Plugin
-
-1. Edit the source code in `src/index.ts`
-2. Rebuild the plugin: `npx tsc`
-3. Restart the agent-browser daemon: `agent-browser close`
-4. Test your changes
-
-## Requirements
-
-- agent-browser CLI version >= 0.8.4
-- Node.js and npm/npx (for building)
-- TypeScript (installed automatically via npx)
+- For row extraction, the plugin prefers `tbody tr`; if missing, it falls back to non-header `tr` rows.
+- `includeHidden=false` ignores rows hidden via `display:none` or `visibility:hidden`.
 
 ## Troubleshooting
 
-### "Unknown plugin: example" error
+### `Unknown plugin: example`
 
-This means the plugin hasn't been built yet or the daemon needs to be restarted:
+Rebuild plugin and restart daemon:
 
-1. Build the plugin: `cd .agent-browser/plugins/agent-browser-plugin-example && npx tsc`
-2. Restart the daemon: `agent-browser close`
-3. Try your command again
-
-### "selector is required" error
-
-You must provide a CSS selector as the first argument:
 ```bash
-# Wrong
-agent-browser example table.getRow
-
-# Correct
-agent-browser example table.getRow "table"
+cd .agent-browser/plugins/agent-browser-plugin-example
+pnpm exec tsc -p tsconfig.json
+agent-browser close
 ```
 
-### Timeout errors
+### `Table not found`
 
-If you get a timeout error, verify that:
-- The page has finished loading
-- The table selector matches an actual table element
-- The table has `<tbody>` and `<tr>` elements
-- The row index exists in the table
+- Check selector correctness.
+- Ensure page is loaded before command execution.
 
-## License
+### `row index out of range`
 
-This is an example plugin for demonstration purposes.
+Run `table.describe` first to confirm available row count.

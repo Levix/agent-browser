@@ -3,5 +3,9 @@
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
-  "private": true
+  "private": true,
+  "scripts": {
+    "build": "pnpm exec tsc -p tsconfig.json",
+    "typecheck": "pnpm exec tsc -p tsconfig.json --noEmit"
+  }
 }

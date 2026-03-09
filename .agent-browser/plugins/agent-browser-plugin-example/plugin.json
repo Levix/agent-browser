@@ -5,6 +5,35 @@
   "entry": "./dist/index.js",
   "commands": [
     {
+      "name": "table.describe",
+      "description": "Inspect table headers, row/column counts, and sample rows",
+      "args": [
+        {
+          "name": "selector",
+          "type": "string",
+          "required": true,
+          "description": "Table root selector"
+        },
+        {
+          "name": "sampleRows",
+          "type": "int",
+          "required": false,
+          "default": 3,
+          "description": "Number of sample rows to return"
+        },
+        {
+          "name": "includeHidden",
+          "type": "bool",
+          "required": false,
+          "default": false,
+          "description": "Whether hidden rows should be included"
+        }
+      ],
+      "handler": {
+        "type": "daemon"
+      }
+    },
+    {
       "name": "table.getRow",
       "description": "Get text content of the nth row in a table",
       "args": [
@@ -20,6 +49,106 @@
           "required": false,
           "default": 0,
           "description": "Zero-based row index"
+        }
+      ],
+      "handler": {
+        "type": "daemon"
+      }
+    },
+    {
+      "name": "table.getRowCells",
+      "description": "Get a row as structured cell data",
+      "args": [
+        {
+          "name": "selector",
+          "type": "string",
+          "required": true,
+          "description": "Table root selector"
+        },
+        {
+          "name": "index",
+          "type": "int",
+          "required": false,
+          "default": 0,
+          "description": "Zero-based row index"
+        },
+        {
+          "name": "includeHidden",
+          "type": "bool",
+          "required": false,
+          "default": false,
+          "description": "Whether hidden rows should be included"
+        }
+      ],
+      "handler": {
+        "type": "daemon"
+      }
+    },
+    {
+      "name": "table.findRows",
+      "description": "Find rows containing a text query",
+      "args": [
+        {
+          "name": "selector",
+          "type": "string",
+          "required": true,
+          "description": "Table root selector"
+        },
+        {
+          "name": "query",
+          "type": "string",
+          "required": true,
+          "description": "Text to search for"
+        },
+        {
+          "name": "limit",
+          "type": "int",
+          "required": false,
+          "default": 5,
+          "description": "Max number of rows to return"
+        },
+        {
+          "name": "caseSensitive",
+          "type": "bool",
+          "required": false,
+          "default": false,
+          "description": "Use case-sensitive matching"
+        },
+        {
+          "name": "includeHidden",
+          "type": "bool",
+          "required": false,
+          "default": false,
+          "description": "Whether hidden rows should be included"
+        }
+      ],
+      "handler": {
+        "type": "daemon"
+      }
+    },
+    {
+      "name": "table.toMarkdown",
+      "description": "Export a table as markdown",
+      "args": [
+        {
+          "name": "selector",
+          "type": "string",
+          "required": true,
+          "description": "Table root selector"
+        },
+        {
+          "name": "maxRows",
+          "type": "int",
+          "required": false,
+          "default": 20,
+          "description": "Max rows included in markdown output"
+        },
+        {
+          "name": "includeHidden",
+          "type": "bool",
+          "required": false,
+          "default": false,
+          "description": "Whether hidden rows should be included"
         }
       ],
       "handler": {
